@@ -2,6 +2,8 @@
 
 A comprehensive SNMP testing and vendor fingerprinting toolkit built in Go with a modern GUI interface. This tool provides enterprise-grade network device discovery, SNMP operations, and vendor-specific fingerprinting capabilities with persistent user settings.
 
+![Screenshot](https://raw.githubusercontent.com/scottpeterman/gosnmptk/refs/heads/main/screenshots/about.png)
+
 ## Features
 
 ### 🔍 **Comprehensive Vendor Fingerprinting**
