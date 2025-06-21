@@ -10,7 +10,7 @@ A comprehensive SNMP testing and vendor fingerprinting toolkit built in Go with 
 |----------|----------------|
 | **Windows** | [⬇️ snmptk-windows.exe](https://github.com/scottpeterman/gosnmptk/raw/refs/heads/main/dist/snmptk-windows.exe) |
 
-
+![Screenshot](https://raw.githubusercontent.com/scottpeterman/gosnmptk/refs/heads/main/screenshots/samples1.gif)
 > 💡 **Just download and run** - no installation required!
 ## Features
 
