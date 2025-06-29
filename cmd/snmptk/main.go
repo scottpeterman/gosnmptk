@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -47,7 +48,15 @@ var defaultSettings = AppDefaults{
 }
 
 func main() {
+	if err := fingerprint.InitializeFromYAML("config/vendor_fingerprints.yaml"); err != nil {
+		log.Printf("Warning: Could not load YAML config: %v", err)
+		log.Printf("Falling back to hardcoded vendor definitions")
+	} else {
+		log.Printf("Successfully loaded vendor fingerprints from YAML")
+	}
 	myApp := app.NewWithID("gosnmptk")
+	applyCyberpunkTheme(myApp)
+
 	myApp.SetIcon(theme.ComputerIcon())
 
 	myWindow := myApp.NewWindow("Go SNMP Tool Kit")
@@ -117,7 +126,7 @@ func (a *SNMPTestApp) makeUI() *container.AppTabs {
 	// Initialize all widgets
 	a.initializeWidgets()
 
-	// Setup menu (ADD THIS LINE)
+	// Setup menu
 	a.setupMenu()
 
 	// Create tabs
@@ -130,8 +139,6 @@ func (a *SNMPTestApp) makeUI() *container.AppTabs {
 
 	return tabs
 }
-
-// ADD THESE NEW METHODS TO YOUR SNMPTestApp:
 
 // setupMenu creates the application menu
 func (a *SNMPTestApp) setupMenu() {
@@ -191,17 +198,37 @@ func (a *SNMPTestApp) showAboutDialog() {
 	// Use SVG logo resource
 	var logoResource fyne.Resource = resources.ResourceLogoSvg
 
-	// Method 1: Use a fixed-size container to control the logo size
-	logoImage := widget.NewIcon(logoResource)
-
 	// Create a fixed-size container for the logo
+	logoImage := widget.NewIcon(logoResource)
 	logoContainer := container.NewWithoutLayout(logoImage)
 	logoContainer.Resize(fyne.NewSize(120, 120))
 	logoImage.Move(fyne.NewPos(0, 0))
 	logoImage.Resize(fyne.NewSize(120, 120))
 
-	// Enhanced version info
-	versionLabel := widget.NewRichTextFromMarkdown(`
+	// Build supported vendors list dynamically
+	supportedVendorsText := "### 🔍 Supported Vendors\n"
+
+	if fingerprint.GlobalConfigManager != nil && fingerprint.GlobalConfigManager.GetConfig() != nil {
+		config := fingerprint.GlobalConfigManager.GetConfig()
+		for _, vendorConfig := range config.Vendors {
+			deviceTypesStr := strings.Join(vendorConfig.DeviceTypes, ", ")
+			supportedVendorsText += fmt.Sprintf("- **%s** - %s\n", vendorConfig.DisplayName, deviceTypesStr)
+		}
+	} else {
+		// Fallback if YAML not loaded
+		supportedVendorsText += `- **Cisco** - IOS, NX-OS, ASA platforms
+- **Dell** - iDRAC server management
+- **Arista** - EOS switches
+- **Aruba/HP** - ProCurve, CX, Wireless
+- **HP Printers** - LaserJet, OfficeJet, DeskJet series
+- **Fortinet** - FortiGate firewalls
+- **Palo Alto** - PAN-OS firewalls
+- **APC** - UPS systems
+`
+	}
+
+	// Enhanced version info with dynamic vendor list
+	versionLabel := widget.NewRichTextFromMarkdown(fmt.Sprintf(`
 # Go SNMP Tool Kit
 
 **Version:** 1.0.0  
@@ -211,21 +238,15 @@ func (a *SNMPTestApp) showAboutDialog() {
 
 ### 🛠 Features
 - **Comprehensive SNMP Operations**: GET, GETNEXT, GETBULK, WALK
-- **Multi-Vendor Fingerprinting**: Cisco, Dell, Arista, Aruba/HP, Fortinet, Palo Alto, APC
+- **Multi-Vendor Fingerprinting**: Dynamic vendor support via YAML configuration
 - **Protocol Support**: SNMPv2c and SNMPv3 with full crypto options
 - **Device Discovery**: Smart vendor detection and device type recognition
 - **Serial Processing**: Device-friendly approach for maximum compatibility
+- **Extensible Configuration**: Add new vendors without code changes
 
 ---
 
-### 🔍 Supported Vendors
-- **Cisco** - IOS, NX-OS, ASA platforms
-- **Dell** - iDRAC server management
-- **Arista** - EOS switches
-- **Aruba/HP** - ProCurve, CX, Wireless
-- **Fortinet** - FortiGate firewalls
-- **Palo Alto** - PAN-OS firewalls
-- **APC** - UPS systems
+%s
 
 ---
 
@@ -240,7 +261,7 @@ MIT License - See LICENSE file for details
 - Fyne Framework for the cross-platform GUI
 - Go SNMP Libraries for protocol implementation
 - Network vendor documentation and MIB specifications
-`)
+`, supportedVendorsText))
 
 	versionLabel.Wrapping = fyne.TextWrapWord
 
@@ -260,51 +281,6 @@ MIT License - See LICENSE file for details
 	aboutDialog.Resize(fyne.NewSize(600, 500))
 	aboutDialog.Show()
 }
-
-// createHeader creates a header with logo
-func (a *SNMPTestApp) createHeader() *fyne.Container {
-	// Use SVG logo resource
-	var logoResource fyne.Resource = resources.ResourceLogoSvg
-
-	logoImage := widget.NewIcon(logoResource)
-	logoImage.Resize(fyne.NewSize(120, 120))
-
-	// Title with tech styling to match your logo
-	titleLabel := widget.NewLabelWithStyle("Go SNMP Tool Kit", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	titleLabel.TextStyle.Monospace = true
-
-	// Subtitle
-	subtitleLabel := widget.NewLabel("Network Device Discovery & Fingerprinting")
-	subtitleLabel.TextStyle.Italic = true
-
-	// Version with monospace to match logo
-	versionLabel := widget.NewLabel("v1.0.0")
-	versionLabel.TextStyle.Monospace = true
-
-	titleContainer := container.NewVBox(
-		titleLabel,
-		subtitleLabel,
-	)
-
-	headerLeft := container.NewHBox(
-		logoImage,
-		widget.NewSeparator(),
-		titleContainer,
-	)
-
-	headerRight := container.NewVBox(
-		widget.NewLabel(""), // Spacer
-		versionLabel,
-	)
-
-	header := container.NewBorder(
-		nil, nil, headerLeft, headerRight,
-	)
-
-	return header
-}
-
-// Replace your existing resetToDefaults function with this enhanced version:
 
 func (a *SNMPTestApp) resetToDefaults() {
 	prefs := a.app.Preferences()
@@ -347,6 +323,7 @@ func (a *SNMPTestApp) resetToDefaults() {
 
 	a.logMessage("All settings have been reset to defaults", "success")
 }
+
 func (a *SNMPTestApp) loadSettingsWithDefaults() {
 	prefs := a.app.Preferences()
 
@@ -474,10 +451,21 @@ func (a *SNMPTestApp) initializeWidgets() {
 	)
 	a.operationRadio.SetSelected("GET")
 
-	a.oidCategorySelect = widget.NewSelect(
-		[]string{"Common MIB-II", "Dell iDRAC", "Cisco Specific", "Aruba/HP", "Fortinet", "Palo Alto", "APC"},
-		nil,
-	)
+	// Dynamically build OID categories from YAML config
+	categories := []string{"Common MIB-II"}
+
+	// Add all configured vendors
+	if fingerprint.GlobalConfigManager != nil && fingerprint.GlobalConfigManager.GetConfig() != nil {
+		config := fingerprint.GlobalConfigManager.GetConfig()
+		for _, vendorConfig := range config.Vendors {
+			categories = append(categories, vendorConfig.DisplayName)
+		}
+	} else {
+		// Fallback to hardcoded list if YAML not loaded
+		categories = append(categories, []string{"Dell iDRAC", "Cisco Specific", "Aruba/HP", "Fortinet", "Palo Alto", "APC"}...)
+	}
+
+	a.oidCategorySelect = widget.NewSelect(categories, nil)
 
 	a.oidSelect = widget.NewSelect([]string{}, a.onOIDSelected)
 	a.customOIDEntry = widget.NewEntry()
@@ -604,7 +592,7 @@ func (a *SNMPTestApp) makeFingerprintingTab() *fyne.Container {
 	}
 	vendorCard := widget.NewCard("Vendor Selection", "", vendorForm)
 
-	// Fingerprinting buttons
+	// Main fingerprinting buttons
 	quickDetectionBtn := widget.NewButton("Quick Vendor Detection", a.quickVendorDetection)
 	quickDetectionBtn.Importance = widget.MediumImportance
 
@@ -613,18 +601,52 @@ func (a *SNMPTestApp) makeFingerprintingTab() *fyne.Container {
 
 	testAllVendorsBtn := widget.NewButton("Test All Vendors (Serial)", a.testAllVendors)
 
-	dellFingerprintBtn := widget.NewButton("Dell iDRAC Fingerprint", a.dellIdracFingerprint)
-
-	buttonContainer := container.NewVBox(
+	mainButtons := container.NewVBox(
 		quickDetectionBtn,
 		fullFingerprintBtn,
 		testAllVendorsBtn,
-		dellFingerprintBtn,
 	)
+
+	// Dynamic vendor-specific buttons
+	vendorButtons := container.NewVBox()
+
+	// Create buttons for each configured vendor
+	if fingerprint.GlobalConfigManager != nil && fingerprint.GlobalConfigManager.GetConfig() != nil {
+		config := fingerprint.GlobalConfigManager.GetConfig()
+		for vendorKey, vendorConfig := range config.Vendors {
+			// Capture vendorKey in closure
+			currentVendor := vendorKey
+			displayName := vendorConfig.DisplayName
+
+			btn := widget.NewButton(fmt.Sprintf("%s Fingerprint", displayName), func() {
+				a.performVendorFingerprint(currentVendor)
+			})
+			vendorButtons.Add(btn)
+		}
+	} else {
+		// Fallback buttons if YAML not loaded
+		fallbackVendors := []struct{ key, name string }{
+			{"dell", "Dell iDRAC"},
+			{"cisco", "Cisco"},
+			{"aruba", "Aruba/HP"},
+			{"fortinet", "Fortinet"},
+			{"palo_alto", "Palo Alto"},
+			{"apc", "APC"},
+		}
+
+		for _, v := range fallbackVendors {
+			currentVendor := v.key
+			btn := widget.NewButton(fmt.Sprintf("%s Fingerprint", v.name), func() {
+				a.performVendorFingerprint(currentVendor)
+			})
+			vendorButtons.Add(btn)
+		}
+	}
 
 	return container.NewVBox(
 		vendorCard,
-		widget.NewCard("Fingerprinting Operations", "", buttonContainer),
+		widget.NewCard("General Operations", "", mainButtons),
+		widget.NewCard("Vendor-Specific Operations", "", vendorButtons),
 	)
 }
 
@@ -654,23 +676,11 @@ func (a *SNMPTestApp) onOIDCategoryChange(value string) {
 
 	var oidMap map[string]string
 
-	switch value {
-	case "Common MIB-II":
+	if value == "Common MIB-II" {
 		oidMap = fingerprint.CommonOIDs
-	case "Dell iDRAC":
-		oidMap = a.getDellOIDs()
-	case "Cisco Specific":
-		oidMap = a.getCiscoOIDs()
-	case "Aruba/HP":
-		oidMap = a.getArubaOIDs()
-	case "Fortinet":
-		oidMap = a.getFortinetOIDs()
-	case "Palo Alto":
-		oidMap = a.getPaloAltoOIDs()
-	case "APC":
-		oidMap = a.getAPCOIDs()
-	default:
-		oidMap = fingerprint.CommonOIDs
+	} else {
+		// Find vendor by display name
+		oidMap = a.getVendorOIDsByDisplayName(value)
 	}
 
 	options := make([]string, 0, len(oidMap))
@@ -683,30 +693,19 @@ func (a *SNMPTestApp) onOIDCategoryChange(value string) {
 }
 
 func (a *SNMPTestApp) onOIDSelected(value string) {
-	// Get all OIDs from all categories
+	// Get all OIDs from all sources
 	allOIDs := make(map[string]string)
 
-	// Add OIDs from all categories
+	// Add common OIDs
 	for k, v := range fingerprint.CommonOIDs {
 		allOIDs[k] = v
 	}
-	for k, v := range a.getDellOIDs() {
-		allOIDs[k] = v
-	}
-	for k, v := range a.getCiscoOIDs() {
-		allOIDs[k] = v
-	}
-	for k, v := range a.getArubaOIDs() {
-		allOIDs[k] = v
-	}
-	for k, v := range a.getFortinetOIDs() {
-		allOIDs[k] = v
-	}
-	for k, v := range a.getPaloAltoOIDs() {
-		allOIDs[k] = v
-	}
-	for k, v := range a.getAPCOIDs() {
-		allOIDs[k] = v
+
+	// Add all vendor OIDs
+	for _, vendorConfig := range fingerprint.VendorFingerprints {
+		for _, oid := range vendorConfig.FingerprintOIDs {
+			allOIDs[oid.Name] = oid.OID
+		}
 	}
 
 	if oid, exists := allOIDs[value]; exists {
@@ -714,65 +713,114 @@ func (a *SNMPTestApp) onOIDSelected(value string) {
 	}
 }
 
-// Helper functions to get vendor-specific OIDs
-func (a *SNMPTestApp) getDellOIDs() map[string]string {
+// Helper function to get vendor OIDs by display name
+func (a *SNMPTestApp) getVendorOIDsByDisplayName(displayName string) map[string]string {
 	oidMap := make(map[string]string)
-	if vendorFingerprint, exists := fingerprint.VendorFingerprints["dell"]; exists {
-		for _, oid := range vendorFingerprint.FingerprintOIDs {
-			oidMap[oid.Name] = oid.OID
+
+	// First try to find by display name from YAML config
+	if fingerprint.GlobalConfigManager != nil && fingerprint.GlobalConfigManager.GetConfig() != nil {
+		config := fingerprint.GlobalConfigManager.GetConfig()
+		for vendorKey, vendorConfig := range config.Vendors {
+			if vendorConfig.DisplayName == displayName {
+				if fpConfig, exists := fingerprint.VendorFingerprints[vendorKey]; exists {
+					for _, oid := range fpConfig.FingerprintOIDs {
+						oidMap[oid.Name] = oid.OID
+					}
+				}
+				return oidMap
+			}
 		}
 	}
+
+	// Fallback: try to find by vendor key directly
+	for vendorKey, vendorConfig := range fingerprint.VendorFingerprints {
+		// Simple heuristic: if display name contains vendor key
+		if strings.Contains(strings.ToLower(displayName), vendorKey) {
+			for _, oid := range vendorConfig.FingerprintOIDs {
+				oidMap[oid.Name] = oid.OID
+			}
+			return oidMap
+		}
+	}
+
 	return oidMap
 }
 
-func (a *SNMPTestApp) getCiscoOIDs() map[string]string {
-	oidMap := make(map[string]string)
-	if vendorFingerprint, exists := fingerprint.VendorFingerprints["cisco"]; exists {
-		for _, oid := range vendorFingerprint.FingerprintOIDs {
-			oidMap[oid.Name] = oid.OID
+// Dynamic fingerprinting function
+func (a *SNMPTestApp) performVendorFingerprint(vendorKey string) {
+	// Get vendor display name
+	displayName := vendorKey
+	if fingerprint.GlobalConfigManager != nil && fingerprint.GlobalConfigManager.GetConfig() != nil {
+		if vendorConfig, exists := fingerprint.GlobalConfigManager.GetConfig().Vendors[vendorKey]; exists {
+			displayName = vendorConfig.DisplayName
 		}
 	}
-	return oidMap
-}
 
-func (a *SNMPTestApp) getArubaOIDs() map[string]string {
-	oidMap := make(map[string]string)
-	if vendorFingerprint, exists := fingerprint.VendorFingerprints["aruba"]; exists {
-		for _, oid := range vendorFingerprint.FingerprintOIDs {
-			oidMap[oid.Name] = oid.OID
-		}
-	}
-	return oidMap
-}
+	a.logMessage(fmt.Sprintf("Performing %s fingerprinting...", displayName), "info")
 
-func (a *SNMPTestApp) getFortinetOIDs() map[string]string {
-	oidMap := make(map[string]string)
-	if vendorFingerprint, exists := fingerprint.VendorFingerprints["fortinet"]; exists {
-		for _, oid := range vendorFingerprint.FingerprintOIDs {
-			oidMap[oid.Name] = oid.OID
-		}
-	}
-	return oidMap
-}
+	// Close existing connection
+	a.closeSNMPClient()
 
-func (a *SNMPTestApp) getPaloAltoOIDs() map[string]string {
-	oidMap := make(map[string]string)
-	if vendorFingerprint, exists := fingerprint.VendorFingerprints["palo_alto"]; exists {
-		for _, oid := range vendorFingerprint.FingerprintOIDs {
-			oidMap[oid.Name] = oid.OID
-		}
+	// Create new client
+	err := a.createSNMPClient()
+	if err != nil {
+		a.logMessage(fmt.Sprintf("Connection failed: %v", err), "error")
+		return
 	}
-	return oidMap
-}
+	defer a.closeSNMPClient()
 
-func (a *SNMPTestApp) getAPCOIDs() map[string]string {
-	oidMap := make(map[string]string)
-	if vendorFingerprint, exists := fingerprint.VendorFingerprints["apc"]; exists {
-		for _, oid := range vendorFingerprint.FingerprintOIDs {
-			oidMap[oid.Name] = oid.OID
+	// Get vendor-specific OIDs
+	vendorOIDs := fingerprint.GetVendorPriorityOIDs(vendorKey, 10)
+
+	if len(vendorOIDs) == 0 {
+		a.logMessage(fmt.Sprintf("No OIDs configured for %s", displayName), "error")
+		return
+	}
+
+	vendorDetected := false
+	vendorInfo := make(map[string]string)
+
+	a.logMessage(fmt.Sprintf("Testing key %s OIDs...", displayName), "info")
+
+	for _, oidEntry := range vendorOIDs {
+		value, err := a.snmpClient.Get(oidEntry.OID)
+		if err != nil {
+			a.logMessage(fmt.Sprintf("FAIL %s (%s): %v", oidEntry.Name, oidEntry.OID, err), "error")
+		} else if fingerprint.IsValidSNMPValue(value) {
+			a.logMessage(fmt.Sprintf("CHECK %s: %s", oidEntry.Name, value), "success")
+			vendorDetected = true
+			vendorInfo[oidEntry.Name] = value
+		} else {
+			a.logMessage(fmt.Sprintf("FAIL %s (%s): No valid data", oidEntry.Name, oidEntry.OID), "error")
 		}
 	}
-	return oidMap
+
+	// Summary
+	a.logMessage("", "info") // Empty line
+	if vendorDetected {
+		a.logMessage(fmt.Sprintf("%s DETECTED! This appears to be a %s device.", strings.ToUpper(displayName), displayName), "success")
+
+		// Show key information based on common field patterns
+		keyFields := [][]string{
+			{"model", "Model"},
+			{"service tag", "Service Tag"},
+			{"serial", "Serial Number"},
+			{"version", "Version"},
+			{"status", "Status"},
+		}
+
+		for _, fieldPattern := range keyFields {
+			pattern, label := fieldPattern[0], fieldPattern[1]
+			for fieldName, value := range vendorInfo {
+				if strings.Contains(strings.ToLower(fieldName), pattern) {
+					a.logMessage(fmt.Sprintf("   %s: %s", label, value), "info")
+					break
+				}
+			}
+		}
+	} else {
+		a.logMessage(fmt.Sprintf("No %s detected. This may not be a %s device or SNMP is not configured properly.", displayName, displayName), "error")
+	}
 }
 
 // SNMP client management
@@ -1172,56 +1220,7 @@ func (a *SNMPTestApp) testAllVendors() {
 }
 
 func (a *SNMPTestApp) dellIdracFingerprint() {
-	a.logMessage("Performing Dell iDRAC fingerprinting...", "info")
-
-	// Close existing connection
-	a.closeSNMPClient()
-
-	// Create new client
-	err := a.createSNMPClient()
-	if err != nil {
-		a.logMessage(fmt.Sprintf("Connection failed: %v", err), "error")
-		return
-	}
-	defer a.closeSNMPClient()
-
-	// Get Dell-specific OIDs
-	dellOIDs := fingerprint.GetVendorPriorityOIDs("dell", 10)
-
-	idracDetected := false
-	dellInfo := make(map[string]string)
-
-	a.logMessage("Testing key Dell iDRAC OIDs...", "info")
-
-	for _, oidEntry := range dellOIDs {
-		value, err := a.snmpClient.Get(oidEntry.OID)
-		if err != nil {
-			a.logMessage(fmt.Sprintf("FAIL %s (%s): %v", oidEntry.Name, oidEntry.OID, err), "error")
-		} else if fingerprint.IsValidSNMPValue(value) {
-			a.logMessage(fmt.Sprintf("CHECK %s: %s", oidEntry.Name, value), "success")
-			idracDetected = true
-			dellInfo[oidEntry.Name] = value
-		} else {
-			a.logMessage(fmt.Sprintf("FAIL %s (%s): No valid data", oidEntry.Name, oidEntry.OID), "error")
-		}
-	}
-
-	// Summary
-	a.logMessage("", "info") // Empty line
-	if idracDetected {
-		a.logMessage("DELL iDRAC DETECTED! This appears to be a Dell server with iDRAC.", "success")
-		if serviceTag, exists := dellInfo["Dell Chassis Service Tag"]; exists {
-			a.logMessage(fmt.Sprintf("   Service Tag: %s", serviceTag), "info")
-		}
-		if model, exists := dellInfo["Dell Chassis Model"]; exists {
-			a.logMessage(fmt.Sprintf("   Model: %s", model), "info")
-		}
-		if version, exists := dellInfo["iDRAC Version"]; exists {
-			a.logMessage(fmt.Sprintf("   iDRAC Version: %s", version), "info")
-		}
-	} else {
-		a.logMessage("No Dell iDRAC detected. This may not be a Dell server or iDRAC SNMP is not configured.", "error")
-	}
+	a.performVendorFingerprint("dell")
 }
 
 func (a *SNMPTestApp) clearResults() {

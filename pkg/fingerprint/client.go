@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+// Initialize the fingerprinting system
+func init() {
+	// Try to load YAML config on package initialization
+	if err := InitializeFromYAML(""); err != nil {
+		// If YAML config fails, we'll fall back to empty maps
+		// (which will be populated by hardcoded fallbacks if needed)
+		fmt.Printf("Warning: Could not load YAML config: %v\n", err)
+	}
+}
+
 // SNMPClient interface for SNMP operations - simplified to avoid type conflicts
 type SNMPClient interface {
 	Get(oid string) (string, error)
@@ -18,16 +28,24 @@ type Client struct {
 	snmpClient SNMPClient
 	timeout    time.Duration
 	logger     func(string)
-	mutex      sync.RWMutex // Add mutex for thread safety
+	mutex      sync.RWMutex
 }
 
 // NewClient creates a new fingerprinting client
 func NewClient(snmpClient SNMPClient) *Client {
-	return &Client{
+	client := &Client{
 		snmpClient: snmpClient,
 		timeout:    time.Second * 30,
-		logger:     func(msg string) {}, // Default no-op logger
+		logger:     func(msg string) {},
 	}
+
+	// Apply YAML config timeouts if available
+	if GlobalConfigManager != nil && GlobalConfigManager.GetConfig() != nil {
+		timeout, _, _ := GlobalConfigManager.GetScanningConfig()
+		client.timeout = timeout
+	}
+
+	return client
 }
 
 // SetLogger sets a custom logger function in a thread-safe manner
@@ -37,7 +55,7 @@ func (c *Client) SetLogger(logger func(string)) {
 	if logger != nil {
 		c.logger = logger
 	} else {
-		c.logger = func(msg string) {} // Fallback to no-op if nil
+		c.logger = func(msg string) {}
 	}
 }
 
@@ -59,11 +77,15 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 
 // getBasicInfo retrieves basic SNMP information using individual GET requests
 func (c *Client) getBasicInfo() (map[string]string, error) {
-	basicOIDs := map[string]string{
-		"sysDescr":    "1.3.6.1.2.1.1.1.0",
-		"sysContact":  "1.3.6.1.2.1.1.4.0",
-		"sysName":     "1.3.6.1.2.1.1.5.0",
-		"sysLocation": "1.3.6.1.2.1.1.6.0",
+	basicOIDs := CommonOIDs
+	if len(basicOIDs) == 0 {
+		// Fallback to hardcoded if YAML config not loaded
+		basicOIDs = map[string]string{
+			"sysDescr":    "1.3.6.1.2.1.1.1.0",
+			"sysContact":  "1.3.6.1.2.1.1.4.0",
+			"sysName":     "1.3.6.1.2.1.1.5.0",
+			"sysLocation": "1.3.6.1.2.1.1.6.0",
+		}
 	}
 
 	result := make(map[string]string)
@@ -71,7 +93,6 @@ func (c *Client) getBasicInfo() (map[string]string, error) {
 	for name, oid := range basicOIDs {
 		value, err := c.snmpClient.Get(oid)
 		if err != nil {
-			// Log error but continue with other OIDs
 			c.log(fmt.Sprintf("Failed to get %s: %v", name, err))
 			continue
 		}
@@ -85,14 +106,22 @@ func (c *Client) getBasicInfo() (map[string]string, error) {
 func (c *Client) queryOIDsSerially(ctx context.Context, oids []OIDEntry) map[string]string {
 	fingerprintData := make(map[string]string)
 
-	// Create a context with timeout for the entire operation
+	// Get timing config from YAML if available
+	var oidTimeout time.Duration
+	var delay time.Duration
+	if GlobalConfigManager != nil && GlobalConfigManager.GetConfig() != nil {
+		_, oidTimeout, delay = GlobalConfigManager.GetScanningConfig()
+	} else {
+		oidTimeout = time.Second * 10
+		delay = 100 * time.Millisecond
+	}
+
 	queryCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	c.log(fmt.Sprintf("Starting serial query of %d OIDs...", len(oids)))
 
 	for i, oidEntry := range oids {
-		// Check if context is cancelled
 		select {
 		case <-queryCtx.Done():
 			c.log("Query operation cancelled or timed out")
@@ -102,10 +131,8 @@ func (c *Client) queryOIDsSerially(ctx context.Context, oids []OIDEntry) map[str
 
 		c.log(fmt.Sprintf("Querying %d/%d: %s (%s)", i+1, len(oids), oidEntry.Name, oidEntry.OID))
 
-		// Create a timeout for individual request (shorter than overall timeout)
-		requestCtx, requestCancel := context.WithTimeout(queryCtx, time.Second*10)
+		requestCtx, requestCancel := context.WithTimeout(queryCtx, oidTimeout)
 
-		// Create a channel to handle the SNMP request with timeout
 		resultChan := make(chan struct {
 			value string
 			err   error
@@ -134,9 +161,7 @@ func (c *Client) queryOIDsSerially(ctx context.Context, oids []OIDEntry) map[str
 		}
 
 		requestCancel()
-
-		// Small delay between requests to be gentler on the device
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(delay)
 	}
 
 	c.log(fmt.Sprintf("Serial query complete: %d successful out of %d total", len(fingerprintData), len(oids)))
@@ -148,13 +173,20 @@ func (c *Client) PerformFingerprinting(ctx context.Context, targetVendor string)
 
 	c.log("Starting vendor fingerprinting...")
 
-	// Step 1: Get basic SNMP information (including sysObjectID for device type detection)
+	// Step 1: Get basic SNMP information
 	basicOIDs := map[string]string{
 		"sysDescr":    "1.3.6.1.2.1.1.1.0",
 		"sysContact":  "1.3.6.1.2.1.1.4.0",
 		"sysName":     "1.3.6.1.2.1.1.5.0",
 		"sysLocation": "1.3.6.1.2.1.1.6.0",
-		"sysObjectID": "1.3.6.1.2.1.1.2.0", // Added for device type detection
+		"sysObjectID": "1.3.6.1.2.1.1.2.0",
+	}
+
+	// Use CommonOIDs from YAML if available
+	if len(CommonOIDs) > 0 {
+		basicOIDs = CommonOIDs
+		// Ensure sysObjectID is included for device type detection
+		basicOIDs["sysObjectID"] = "1.3.6.1.2.1.1.2.0"
 	}
 
 	basicInfo := make(map[string]string)
@@ -202,11 +234,10 @@ func (c *Client) PerformFingerprinting(ctx context.Context, targetVendor string)
 
 	// Step 3: Get vendor-specific OIDs with device type awareness
 	var vendorOIDs []OIDEntry
-	if detectedVendor == "aruba" {
-		// Use device-type-aware selection for Aruba
+	if detectedVendor == "aruba" || detectedVendor == "hp_printer" {
 		vendorOIDs = GetVendorOIDsWithDeviceType(detectedVendor, basicInfo)
-		deviceType := DetectArubaDeviceType(basicInfo["sysDescr"], basicInfo["sysObjectID"])
-		c.log(fmt.Sprintf("Detected Aruba device type: %s", deviceType))
+		deviceType := DetectDeviceType(detectedVendor, basicInfo["sysDescr"], basicInfo["sysObjectID"])
+		c.log(fmt.Sprintf("Detected device type: %s", deviceType))
 	} else {
 		vendorOIDs = GetVendorOIDs(detectedVendor)
 	}
@@ -268,7 +299,6 @@ func (c *Client) QuickVendorDetection() (*FingerprintResult, error) {
 
 	c.log("Performing quick vendor detection...")
 
-	// Get basic SNMP information
 	basicInfo, err := c.getBasicInfo()
 	if err != nil {
 		return &FingerprintResult{
@@ -282,7 +312,6 @@ func (c *Client) QuickVendorDetection() (*FingerprintResult, error) {
 		}, err
 	}
 
-	// Detect vendor
 	detectedVendor, confidence, detectionMethod := DetectVendorComprehensive(
 		basicInfo["sysDescr"],
 		basicInfo["sysContact"],
@@ -290,7 +319,6 @@ func (c *Client) QuickVendorDetection() (*FingerprintResult, error) {
 		basicInfo["sysLocation"],
 	)
 
-	// Create basic fingerprint data from system info
 	fingerprintData := make(map[string]string)
 	if basicInfo["sysDescr"] != "" {
 		fingerprintData["System Description"] = basicInfo["sysDescr"]
@@ -350,7 +378,7 @@ func (c *Client) TestAllVendors(ctx context.Context) (map[string]*FingerprintRes
 
 		results[vendor] = result
 
-		// Small delay between vendor tests to be gentle on the device
+		// Small delay between vendor tests
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -367,12 +395,10 @@ func (c *Client) refineDetection(detectedVendor, confidence, detectionMethod str
 	finalMethod := detectionMethod
 
 	if len(fingerprintData) > 0 {
-		// If we got specific data, we can be more confident
 		if detectedVendor == "unknown" {
 			finalMethod = "fingerprint_oids"
 			finalConfidence = "medium"
 
-			// Try to detect vendor from entity description if found
 			if entityDescr, exists := fingerprintData["Entity Description"]; exists {
 				reDetectedVendor := DetectVendorFromSysDescr(entityDescr)
 				if reDetectedVendor != "unknown" {
@@ -382,7 +408,6 @@ func (c *Client) refineDetection(detectedVendor, confidence, detectionMethod str
 				}
 			}
 		} else {
-			// We had initial detection, and now confirmed with specific OIDs
 			finalMethod += " + fingerprint_oids"
 			switch finalConfidence {
 			case "low":
@@ -392,7 +417,6 @@ func (c *Client) refineDetection(detectedVendor, confidence, detectionMethod str
 			}
 		}
 	} else {
-		// If no specific OID data was collected
 		if detectedVendor != "unknown" {
 			finalConfidence = "low"
 		} else {
@@ -401,13 +425,4 @@ func (c *Client) refineDetection(detectedVendor, confidence, detectionMethod str
 	}
 
 	return finalVendor, finalConfidence, finalMethod
-}
-
-// GetSupportedVendors returns a list of supported vendors
-func GetSupportedVendors() []string {
-	vendors := make([]string, 0, len(VendorFingerprints))
-	for vendor := range VendorFingerprints {
-		vendors = append(vendors, vendor)
-	}
-	return vendors
 }

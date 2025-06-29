@@ -1,0 +1,704 @@
+package main
+
+import (
+	"context"
+	"encoding/csv"
+	_ "encoding/json"
+	"fmt"
+	"net"
+	_ "os"
+	_ "path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+)
+
+// ScanResult represents the result of scanning a single host
+type ScanResult struct {
+	IP            string        `json:"ip"`
+	Hostname      string        `json:"hostname"`
+	Responding    bool          `json:"responding"`
+	RTT           time.Duration `json:"rtt"`
+	SNMPReady     bool          `json:"snmp_ready"`
+	SNMPCommunity string        `json:"snmp_community,omitempty"`
+	Error         string        `json:"error,omitempty"`
+	ScanTime      time.Time     `json:"scan_time"`
+}
+
+// ScanStats holds scanning statistics
+type ScanStats struct {
+	Total       int64
+	Scanned     int64
+	Responding  int64
+	SNMPReady   int64
+	Errors      int64
+	StartTime   time.Time
+	ElapsedTime time.Duration
+}
+
+// NetworkScanner handles network scanning operations
+type NetworkScanner struct {
+	// Configuration
+	timeout     time.Duration
+	concurrency int
+	snmpTimeout time.Duration
+	communities []string
+
+	// State
+	ctx     context.Context
+	cancel  context.CancelFunc
+	results []ScanResult
+	stats   ScanStats
+	mu      sync.RWMutex
+
+	// Callbacks for UI updates
+	onProgress func(stats ScanStats)
+	onResult   func(result ScanResult)
+	onComplete func()
+}
+
+// NewNetworkScanner creates a new network scanner
+func NewNetworkScanner() *NetworkScanner {
+	return &NetworkScanner{
+		timeout:     3 * time.Second,
+		concurrency: 50, // Lighter than CLI version
+		snmpTimeout: 2 * time.Second,
+		communities: []string{"public", "private"},
+		results:     make([]ScanResult, 0),
+	}
+}
+
+// SetTimeout sets the ping timeout
+func (ns *NetworkScanner) SetTimeout(timeout time.Duration) {
+	ns.timeout = timeout
+}
+
+// SetConcurrency sets the maximum concurrent operations
+func (ns *NetworkScanner) SetConcurrency(concurrency int) {
+	ns.concurrency = concurrency
+}
+
+// SetSNMPCommunities sets SNMP communities to test
+func (ns *NetworkScanner) SetSNMPCommunities(communities []string) {
+	ns.communities = communities
+}
+
+// SetProgressCallback sets the progress update callback
+func (ns *NetworkScanner) SetProgressCallback(callback func(ScanStats)) {
+	ns.onProgress = callback
+}
+
+// SetResultCallback sets the result callback
+func (ns *NetworkScanner) SetResultCallback(callback func(ScanResult)) {
+	ns.onResult = callback
+}
+
+// SetCompleteCallback sets the completion callback
+func (ns *NetworkScanner) SetCompleteCallback(callback func()) {
+	ns.onComplete = callback
+}
+
+// generateIPs generates IP addresses from CIDR notation
+func (ns *NetworkScanner) generateIPs(cidr string) ([]string, error) {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CIDR: %w", err)
+	}
+
+	var ips []string
+	for ip := ipNet.IP.Mask(ipNet.Mask); ipNet.Contains(ip); inc(ip) {
+		ips = append(ips, ip.String())
+	}
+
+	// Remove network and broadcast addresses for subnets smaller than /31
+	ones, _ := ipNet.Mask.Size()
+	if ones < 31 && len(ips) > 2 {
+		ips = ips[1 : len(ips)-1]
+	}
+
+	return ips, nil
+}
+
+// inc increments an IP address
+func inc(ip net.IP) {
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
+	}
+}
+
+// pingHost performs a simple connectivity check (simplified ping)
+func (ns *NetworkScanner) pingHost(ip string) (bool, time.Duration, error) {
+	start := time.Now()
+
+	// Use TCP connect as a ping alternative (more reliable in GUI environments)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, "80"), ns.timeout)
+	if err == nil {
+		conn.Close()
+		return true, time.Since(start), nil
+	}
+
+	// Try common ports
+	ports := []string{"443", "22", "23", "161"}
+	for _, port := range ports {
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), ns.timeout/time.Duration(len(ports)))
+		if err == nil {
+			conn.Close()
+			return true, time.Since(start), nil
+		}
+	}
+
+	return false, time.Since(start), err
+}
+
+// testSNMP tests SNMP connectivity (simplified)
+func (ns *NetworkScanner) testSNMP(ip string) (bool, string) {
+	// Simplified SNMP test - just try to connect on port 161
+	for _, community := range ns.communities {
+		conn, err := net.DialTimeout("udp", net.JoinHostPort(ip, "161"), ns.snmpTimeout)
+		if err == nil {
+			conn.Close()
+			return true, community
+		}
+	}
+	return false, ""
+}
+
+// lookupHostname performs reverse DNS lookup
+func (ns *NetworkScanner) lookupHostname(ip string) string {
+	names, err := net.LookupAddr(ip)
+	if err != nil || len(names) == 0 {
+		return ip
+	}
+	return strings.TrimSuffix(names[0], ".")
+}
+
+// scanHost scans a single host
+func (ns *NetworkScanner) scanHost(ip string) ScanResult {
+	result := ScanResult{
+		IP:       ip,
+		Hostname: ip,
+		ScanTime: time.Now(),
+	}
+
+	// Check connectivity
+	responding, rtt, err := ns.pingHost(ip)
+	result.Responding = responding
+	result.RTT = rtt
+
+	if err != nil {
+		result.Error = err.Error()
+	}
+
+	if responding {
+		// Get hostname
+		result.Hostname = ns.lookupHostname(ip)
+
+		// Test SNMP if host is responding
+		snmpReady, community := ns.testSNMP(ip)
+		result.SNMPReady = snmpReady
+		result.SNMPCommunity = community
+	}
+
+	return result
+}
+
+// ScanNetwork scans a network range
+func (ns *NetworkScanner) ScanNetwork(cidr string) error {
+	// Generate IPs
+	ips, err := ns.generateIPs(cidr)
+	if err != nil {
+		return err
+	}
+
+	// Initialize context and stats
+	ns.ctx, ns.cancel = context.WithCancel(context.Background())
+	ns.stats = ScanStats{
+		Total:     int64(len(ips)),
+		StartTime: time.Now(),
+	}
+	ns.results = make([]ScanResult, 0, len(ips))
+
+	// Create semaphore for concurrency control
+	sem := make(chan struct{}, ns.concurrency)
+	resultChan := make(chan ScanResult, len(ips))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for _, ip := range ips {
+		select {
+		case <-ns.ctx.Done():
+			break
+		default:
+		}
+
+		wg.Add(1)
+		go func(ipAddr string) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// Check if cancelled
+			select {
+			case <-ns.ctx.Done():
+				return
+			default:
+			}
+
+			// Scan host
+			result := ns.scanHost(ipAddr)
+
+			select {
+			case resultChan <- result:
+			case <-ns.ctx.Done():
+				return
+			}
+		}(ip)
+	}
+
+	// Close result channel when all workers complete
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results
+	for result := range resultChan {
+		ns.mu.Lock()
+		ns.results = append(ns.results, result)
+
+		// Update stats
+		atomic.AddInt64(&ns.stats.Scanned, 1)
+		if result.Responding {
+			atomic.AddInt64(&ns.stats.Responding, 1)
+		}
+		if result.SNMPReady {
+			atomic.AddInt64(&ns.stats.SNMPReady, 1)
+		}
+		if result.Error != "" {
+			atomic.AddInt64(&ns.stats.Errors, 1)
+		}
+
+		ns.stats.ElapsedTime = time.Since(ns.stats.StartTime)
+		stats := ns.stats
+		ns.mu.Unlock()
+
+		// Notify UI
+		if ns.onResult != nil {
+			ns.onResult(result)
+		}
+		if ns.onProgress != nil {
+			ns.onProgress(stats)
+		}
+	}
+
+	if ns.onComplete != nil {
+		ns.onComplete()
+	}
+
+	return nil
+}
+
+// Cancel stops the scanning process
+func (ns *NetworkScanner) Cancel() {
+	if ns.cancel != nil {
+		ns.cancel()
+	}
+}
+
+// GetResults returns current results
+func (ns *NetworkScanner) GetResults() []ScanResult {
+	ns.mu.RLock()
+	defer ns.mu.RUnlock()
+	return append([]ScanResult(nil), ns.results...)
+}
+
+// GetStats returns current statistics
+func (ns *NetworkScanner) GetStats() ScanStats {
+	ns.mu.RLock()
+	defer ns.mu.RUnlock()
+	return ns.stats
+}
+
+// NetworkScannerApp represents the GUI application
+type NetworkScannerApp struct {
+	app    fyne.App
+	window fyne.Window
+
+	// UI Components
+	networkEntry     *widget.Entry
+	timeoutEntry     *widget.Entry
+	concurrencyEntry *widget.Entry
+	communitiesEntry *widget.Entry
+
+	// Status display
+	progressBar  *widget.ProgressBar
+	statusLabel  *widget.Label
+	statsLabel   *widget.Label
+	resultsTable *widget.Table
+
+	// Controls
+	scanButton   *widget.Button
+	cancelButton *widget.Button
+	exportButton *widget.Button
+
+	// Scanner
+	scanner *NetworkScanner
+
+	// Results
+	results []ScanResult
+	mu      sync.RWMutex
+}
+
+// NewNetworkScannerApp creates a new scanner application
+func NewNetworkScannerApp() *NetworkScannerApp {
+	app := app.NewWithID("gosnmp-network-scanner")
+	app.SetIcon(theme.ComputerIcon())
+
+	window := app.NewWindow("Go SNMP Network Scanner")
+	window.Resize(fyne.NewSize(1000, 700))
+
+	return &NetworkScannerApp{
+		app:     app,
+		window:  window,
+		scanner: NewNetworkScanner(),
+		results: make([]ScanResult, 0),
+	}
+}
+
+// initializeUI initializes the user interface
+func (app *NetworkScannerApp) initializeUI() {
+	// Input fields
+	app.networkEntry = widget.NewEntry()
+	app.networkEntry.SetPlaceHolder("10.1.0.0/16")
+
+	app.timeoutEntry = widget.NewEntry()
+	app.timeoutEntry.SetText("3")
+
+	app.concurrencyEntry = widget.NewEntry()
+	app.concurrencyEntry.SetText("50")
+
+	app.communitiesEntry = widget.NewEntry()
+	app.communitiesEntry.SetText("public,private")
+
+	// Status components
+	app.progressBar = widget.NewProgressBar()
+	app.statusLabel = widget.NewLabel("Ready to scan")
+	app.statsLabel = widget.NewLabel("")
+
+	// Controls
+	app.scanButton = widget.NewButton("Start Scan", app.startScan)
+	app.scanButton.Importance = widget.HighImportance
+
+	app.cancelButton = widget.NewButton("Cancel", app.cancelScan)
+	app.cancelButton.Disable()
+
+	app.exportButton = widget.NewButton("Export Results", app.exportResults)
+	app.exportButton.Disable()
+
+	// Results table
+	app.resultsTable = widget.NewTable(
+		func() (int, int) {
+			app.mu.RLock()
+			defer app.mu.RUnlock()
+			return len(app.results) + 1, 6 // +1 for header
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("")
+		},
+		func(id widget.TableCellID, obj fyne.CanvasObject) {
+			label := obj.(*widget.Label)
+
+			if id.Row == 0 {
+				// Header
+				headers := []string{"IP", "Hostname", "Status", "RTT", "SNMP", "Community"}
+				if id.Col < len(headers) {
+					label.SetText(headers[id.Col])
+					label.TextStyle.Bold = true
+				}
+				return
+			}
+
+			app.mu.RLock()
+			defer app.mu.RUnlock()
+
+			if id.Row-1 < len(app.results) {
+				result := app.results[id.Row-1]
+
+				switch id.Col {
+				case 0:
+					label.SetText(result.IP)
+				case 1:
+					label.SetText(result.Hostname)
+				case 2:
+					if result.Responding {
+						label.SetText("✅ Up")
+					} else {
+						label.SetText("❌ Down")
+					}
+				case 3:
+					if result.Responding {
+						label.SetText(fmt.Sprintf("%.1fms", float64(result.RTT.Nanoseconds())/1000000))
+					} else {
+						label.SetText("-")
+					}
+				case 4:
+					if result.SNMPReady {
+						label.SetText("✅ Ready")
+					} else if result.Responding {
+						label.SetText("❌ No SNMP")
+					} else {
+						label.SetText("-")
+					}
+				case 5:
+					label.SetText(result.SNMPCommunity)
+				}
+			}
+		},
+	)
+
+	app.resultsTable.SetColumnWidth(0, 120)
+	app.resultsTable.SetColumnWidth(1, 200)
+	app.resultsTable.SetColumnWidth(2, 80)
+	app.resultsTable.SetColumnWidth(3, 80)
+	app.resultsTable.SetColumnWidth(4, 100)
+	app.resultsTable.SetColumnWidth(5, 100)
+
+	// Setup scanner callbacks
+	app.scanner.SetProgressCallback(app.updateProgress)
+	app.scanner.SetResultCallback(app.addResult)
+	app.scanner.SetCompleteCallback(app.scanComplete)
+}
+
+// createLayout creates the application layout
+func (app *NetworkScannerApp) createLayout() fyne.CanvasObject {
+	// Configuration form
+	configForm := &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Network CIDR", Widget: app.networkEntry},
+			{Text: "Timeout (seconds)", Widget: app.timeoutEntry},
+			{Text: "Max Concurrent", Widget: app.concurrencyEntry},
+			{Text: "SNMP Communities", Widget: app.communitiesEntry},
+		},
+	}
+
+	configCard := widget.NewCard("Scan Configuration", "", configForm)
+
+	// Controls
+	controlsContainer := container.NewHBox(
+		app.scanButton,
+		app.cancelButton,
+		widget.NewSeparator(),
+		app.exportButton,
+	)
+
+	// Status panel
+	statusContainer := container.NewVBox(
+		app.statusLabel,
+		app.progressBar,
+		app.statsLabel,
+	)
+
+	statusCard := widget.NewCard("Scan Status", "", statusContainer)
+
+	// Top panel
+	topPanel := container.NewHBox(
+		configCard,
+		statusCard,
+	)
+
+	// Results panel
+	resultsCard := widget.NewCard("Scan Results", "",
+		container.NewBorder(
+			controlsContainer, nil, nil, nil,
+			container.NewScroll(app.resultsTable),
+		),
+	)
+
+	// Main layout
+	return container.NewBorder(
+		topPanel, nil, nil, nil,
+		resultsCard,
+	)
+}
+
+// startScan starts the network scanning process
+func (app *NetworkScannerApp) startScan() {
+	// Validate inputs
+	network := strings.TrimSpace(app.networkEntry.Text)
+	if network == "" {
+		dialog.ShowError(fmt.Errorf("please enter a network CIDR"), app.window)
+		return
+	}
+
+	// Parse timeout
+	timeoutStr := strings.TrimSpace(app.timeoutEntry.Text)
+	timeoutSecs, err := strconv.ParseFloat(timeoutStr, 64)
+	if err != nil || timeoutSecs <= 0 {
+		dialog.ShowError(fmt.Errorf("invalid timeout value"), app.window)
+		return
+	}
+
+	// Parse concurrency
+	concurrencyStr := strings.TrimSpace(app.concurrencyEntry.Text)
+	concurrency, err := strconv.Atoi(concurrencyStr)
+	if err != nil || concurrency <= 0 || concurrency > 500 {
+		dialog.ShowError(fmt.Errorf("concurrency must be between 1 and 500"), app.window)
+		return
+	}
+
+	// Parse communities
+	communitiesStr := strings.TrimSpace(app.communitiesEntry.Text)
+	communities := strings.Split(communitiesStr, ",")
+	for i, community := range communities {
+		communities[i] = strings.TrimSpace(community)
+	}
+
+	// Configure scanner
+	app.scanner.SetTimeout(time.Duration(timeoutSecs * float64(time.Second)))
+	app.scanner.SetConcurrency(concurrency)
+	app.scanner.SetSNMPCommunities(communities)
+
+	// Clear previous results
+	app.mu.Lock()
+	app.results = make([]ScanResult, 0)
+	app.mu.Unlock()
+	app.resultsTable.Refresh()
+
+	// Update UI state
+	app.scanButton.Disable()
+	app.cancelButton.Enable()
+	app.exportButton.Disable()
+	app.progressBar.SetValue(0)
+	app.statusLabel.SetText("Starting scan...")
+
+	// Start scan in goroutine
+	go func() {
+		err := app.scanner.ScanNetwork(network)
+		if err != nil {
+			dialog.ShowError(err, app.window)
+			app.scanComplete()
+		}
+	}()
+}
+
+// cancelScan cancels the current scan
+func (app *NetworkScannerApp) cancelScan() {
+	app.scanner.Cancel()
+	app.statusLabel.SetText("Cancelling scan...")
+}
+
+// updateProgress updates the progress display
+func (app *NetworkScannerApp) updateProgress(stats ScanStats) {
+	if stats.Total > 0 {
+		progress := float64(stats.Scanned) / float64(stats.Total)
+		app.progressBar.SetValue(progress)
+
+		app.statusLabel.SetText(fmt.Sprintf("Scanning... %d/%d (%.1f%%)",
+			stats.Scanned, stats.Total, progress*100))
+
+		app.statsLabel.SetText(fmt.Sprintf(
+			"Responding: %d | SNMP Ready: %d | Elapsed: %v",
+			stats.Responding, stats.SNMPReady, stats.ElapsedTime.Truncate(time.Second)))
+	}
+}
+
+// addResult adds a scan result to the table
+func (app *NetworkScannerApp) addResult(result ScanResult) {
+	app.mu.Lock()
+	app.results = append(app.results, result)
+	app.mu.Unlock()
+
+	app.resultsTable.Refresh()
+}
+
+// scanComplete handles scan completion
+func (app *NetworkScannerApp) scanComplete() {
+	app.scanButton.Enable()
+	app.cancelButton.Disable()
+	app.exportButton.Enable()
+
+	stats := app.scanner.GetStats()
+	app.statusLabel.SetText(fmt.Sprintf("Scan complete! %d hosts scanned in %v",
+		stats.Scanned, stats.ElapsedTime.Truncate(time.Second)))
+
+	app.progressBar.SetValue(1.0)
+}
+
+// exportResults exports scan results
+func (app *NetworkScannerApp) exportResults() {
+	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			return
+		}
+		defer writer.Close()
+
+		if err := app.saveResultsCSV(writer); err != nil {
+			dialog.ShowError(err, app.window)
+		} else {
+			dialog.ShowInformation("Export Complete",
+				fmt.Sprintf("Results exported to %s", writer.URI().Name()),
+				app.window)
+		}
+	}, app.window)
+}
+
+// saveResultsCSV saves results to CSV format
+func (app *NetworkScannerApp) saveResultsCSV(writer fyne.URIWriteCloser) error {
+	csvWriter := csv.NewWriter(writer)
+	defer csvWriter.Flush()
+
+	// Write header
+	header := []string{"IP", "Hostname", "Responding", "RTT_ms", "SNMP_Ready", "SNMP_Community", "Error", "Scan_Time"}
+	if err := csvWriter.Write(header); err != nil {
+		return err
+	}
+
+	// Write data
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+
+	for _, result := range app.results {
+		record := []string{
+			result.IP,
+			result.Hostname,
+			fmt.Sprintf("%t", result.Responding),
+			fmt.Sprintf("%.1f", float64(result.RTT.Nanoseconds())/1000000),
+			fmt.Sprintf("%t", result.SNMPReady),
+			result.SNMPCommunity,
+			result.Error,
+			result.ScanTime.Format(time.RFC3339),
+		}
+
+		if err := csvWriter.Write(record); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Run starts the application
+func (app *NetworkScannerApp) Run() {
+	app.initializeUI()
+	app.window.SetContent(app.createLayout())
+	app.window.ShowAndRun()
+}
+
+func main() {
+	app := NewNetworkScannerApp()
+	app.Run()
+}
