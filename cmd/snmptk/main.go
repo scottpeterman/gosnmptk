@@ -3,11 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"strconv"
-	"strings"
-	"time"
-
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
@@ -17,6 +12,10 @@ import (
 	"github.com/scottpeterman/gosnmptk/internal/resources"
 	"github.com/scottpeterman/gosnmptk/pkg/fingerprint"
 	"github.com/scottpeterman/gosnmptk/pkg/snmp"
+	"log"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type AppDefaults struct {
@@ -54,15 +53,16 @@ func main() {
 	} else {
 		log.Printf("Successfully loaded vendor fingerprints from YAML")
 	}
+
 	myApp := app.NewWithID("gosnmptk")
 	applyCyberpunkTheme(myApp)
 
 	myApp.SetIcon(theme.ComputerIcon())
 
 	myWindow := myApp.NewWindow("Go SNMP Tool Kit")
-	myWindow.Resize(fyne.NewSize(1000, 700))
+	myWindow.Resize(fyne.NewSize(1200, 700)) // Slightly wider for split layout
 
-	// Create the main application
+	// Create the main application with split layout
 	snmpApp := NewSNMPTestApp(myApp, myWindow)
 	content := snmpApp.makeUI()
 
@@ -103,8 +103,8 @@ type SNMPTestApp struct {
 	// Fingerprinting
 	fingerprintVendorSelect *widget.Select
 
-	// Results
-	resultsText *widget.RichText
+	// Results - CHANGED: Use Entry instead of RichText
+	resultsText *widget.Entry // Changed from *widget.RichText
 
 	// UI containers
 	v2cCard *widget.Card
@@ -122,22 +122,98 @@ func NewSNMPTestApp(app fyne.App, window fyne.Window) *SNMPTestApp {
 	}
 }
 
-func (a *SNMPTestApp) makeUI() *container.AppTabs {
+func (a *SNMPTestApp) makeUI() *container.Split {
 	// Initialize all widgets
 	a.initializeWidgets()
 
 	// Setup menu
 	a.setupMenu()
 
-	// Create tabs
-	tabs := container.NewAppTabs(
+	// Create tabs for left pane (without Results tab)
+	leftTabs := container.NewAppTabs(
 		container.NewTabItem("Connection", a.makeConnectionTab()),
 		container.NewTabItem("Operations", a.makeOperationsTab()),
 		container.NewTabItem("Fingerprinting", a.makeFingerprintingTab()),
-		container.NewTabItem("Results", a.makeResultsTab()),
 	)
 
-	return tabs
+	// Create results pane for right side
+	resultsPane := a.makeResultsPane()
+
+	// Create split container with left tabs and right results
+	split := container.NewHSplit(leftTabs, resultsPane)
+
+	// Set the split position (30% left, 70% right for results)
+	split.Offset = 0.3
+
+	return split
+}
+
+func (a *SNMPTestApp) exportResults() {
+	// Create a file dialog for saving results
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, a.window)
+			return
+		}
+		if writer == nil {
+			return // User cancelled
+		}
+
+		// Get the current results content
+		content := ""
+		for _, msg := range a.resultMessages {
+			content += msg + "\n"
+		}
+
+		// Write to file
+		if _, writeErr := writer.Write([]byte(content)); writeErr != nil {
+			dialog.ShowError(writeErr, a.window)
+			return
+		}
+		writer.Close()
+
+		a.logMessage("Results exported successfully", "success")
+	}, a.window)
+
+	saveDialog.SetFileName("snmp_results.txt")
+	// Note: SetFilter is optional - removing it for simplicity
+	saveDialog.Show()
+}
+
+func (a *SNMPTestApp) makeResultsPane() *fyne.Container {
+	// Create clear button for results pane
+	clearBtn := widget.NewButton("Clear Results", a.clearResults)
+	clearBtn.Importance = widget.MediumImportance
+
+	// Create export button
+	exportBtn := widget.NewButton("Export Results", a.exportResults)
+
+	// Create button container
+	buttonContainer := container.NewHBox(clearBtn, exportBtn)
+
+	// Set an initial size for the Entry widget
+	a.resultsText.Resize(fyne.NewSize(600, 700))
+
+	// Create the scroll container for results
+	resultsScroll := container.NewScroll(a.resultsText)
+
+	// Set minimum size for the scroll container
+	resultsScroll.SetMinSize(fyne.NewSize(400, 600))
+
+	// Use NewBorder to give the scroll area maximum available space
+	resultsContent := container.NewBorder(
+		container.NewVBox(buttonContainer, widget.NewSeparator()), // Top
+		nil,           // Bottom
+		nil,           // Left
+		nil,           // Right
+		resultsScroll, // Center (expands to fill)
+	)
+
+	// Create the card with proper content
+	resultsCard := widget.NewCard("Results", "", resultsContent)
+
+	// Return the card in a VBox container that will expand properly
+	return container.NewVBox(resultsCard)
 }
 
 // setupMenu creates the application menu
@@ -478,7 +554,10 @@ func (a *SNMPTestApp) initializeWidgets() {
 	a.fingerprintVendorSelect.SetSelected("auto-detect")
 
 	// Results
-	a.resultsText = widget.NewRichText()
+	a.resultsText = widget.NewMultiLineEntry()
+	a.resultsText.Wrapping = fyne.TextWrapWord
+	a.resultsText.Disable() // Make it read-only but still copyable
+	a.resultsText.SetText("Results will appear here...\n\n")
 	a.resultsText.Wrapping = fyne.TextWrapWord
 
 	// Initialize result messages slice
@@ -1225,25 +1304,26 @@ func (a *SNMPTestApp) dellIdracFingerprint() {
 
 func (a *SNMPTestApp) clearResults() {
 	a.resultMessages = []string{}
-	a.resultsText.ParseMarkdown("")
+	a.resultsText.SetText("")
 	a.resultsText.Refresh()
 }
 
 // Logging function
+
+// Logging function with auto-scroll to bottom
 func (a *SNMPTestApp) logMessage(message, level string) {
 	var prefix string
 	switch level {
 	case "error":
-		prefix = "❌ **ERROR**: "
+		prefix = "❌ ERROR: "
 	case "success":
-		prefix = "✅ **SUCCESS**: "
+		prefix = "✅ SUCCESS: "
 	case "warning":
-		prefix = "⚠️ **WARNING**: "
+		prefix = "⚠️ WARNING: "
 	case "info":
-		prefix = "ℹ️ **INFO**: "
+		prefix = "ℹ️ INFO: "
 	case "header":
-		prefix = "🔍 **"
-		message = message + "**"
+		prefix = "🔍 "
 	default:
 		prefix = ""
 	}
@@ -1256,13 +1336,32 @@ func (a *SNMPTestApp) logMessage(message, level string) {
 		a.resultMessages = a.resultMessages[1:]
 	}
 
-	// Rebuild the content as markdown
+	// Rebuild the content as plain text
 	content := ""
 	for _, msg := range a.resultMessages {
 		content += msg + "\n\n"
 	}
 
-	a.resultsText.ParseMarkdown(content)
+	// Update the text content
+	a.resultsText.SetText(content)
+
+	// Move cursor to the end of the text to auto-scroll to bottom
+	textLen := len(content)
+	a.resultsText.CursorColumn = 0
+	a.resultsText.CursorRow = len(strings.Split(content, "\n"))
+
+	// Alternative approach: set cursor to the very end
+	// This ensures we scroll to the bottom
+	if textLen > 0 {
+		// Move cursor to end of text
+		lines := strings.Split(content, "\n")
+		a.resultsText.CursorRow = len(lines) - 1
+		if len(lines) > 0 {
+			a.resultsText.CursorColumn = len(lines[len(lines)-1])
+		}
+	}
+
+	// Refresh the widget to ensure the scroll position updates
 	a.resultsText.Refresh()
 }
 
