@@ -22,6 +22,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	// Import your existing SNMP client and fingerprint library
+	_ "github.com/scottpeterman/gosnmptk/internal/resources"
 	"github.com/scottpeterman/gosnmptk/pkg/fingerprint"
 	"github.com/scottpeterman/gosnmptk/pkg/persistence"
 	"github.com/scottpeterman/gosnmptk/pkg/snmp"
