@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"image/color"
 	"net"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +23,7 @@ import (
 
 	// Import your existing SNMP client and fingerprint library
 	"github.com/scottpeterman/gosnmptk/pkg/fingerprint"
+	"github.com/scottpeterman/gosnmptk/pkg/persistence"
 	"github.com/scottpeterman/gosnmptk/pkg/snmp"
 )
 
@@ -476,7 +479,7 @@ func (ns *NetworkScanner) scanHost(ip string) ScanResult {
 	return result
 }
 
-// ScanNetwork scans a network range with proper cleanup
+// ScanNetwork scans a network range with dynamic timeout based on network size
 func (ns *NetworkScanner) ScanNetwork(cidr string) error {
 	// Clean up any previous scan first
 	if ns.cancel != nil {
@@ -560,8 +563,35 @@ func (ns *NetworkScanner) ScanNetwork(cidr string) error {
 		close(resultChan)
 	}()
 
-	// Collect results with timeout protection
-	collectTimeout := time.After(10 * time.Minute) // Max scan time
+	// ENHANCED: Dynamic timeout based on network size
+	var maxScanTime time.Duration
+	ipCount := len(ips)
+
+	switch {
+	case ipCount > 32000: // /16 and larger
+		maxScanTime = 4 * time.Hour
+	case ipCount > 16000: // /17
+		maxScanTime = 2 * time.Hour
+	case ipCount > 8000: // /18-/19
+		maxScanTime = 1 * time.Hour
+	case ipCount > 4000: // /20
+		maxScanTime = 30 * time.Minute
+	case ipCount > 1000: // /21-/22
+		maxScanTime = 20 * time.Minute
+	case ipCount > 250: // /23-/24
+		maxScanTime = 10 * time.Minute
+	default: // Small networks
+		maxScanTime = 5 * time.Minute
+	}
+
+	// Log the timeout being used (optional)
+	if ns.onProgress != nil {
+		// You could add this info to ScanStats if desired
+		fmt.Printf("Scanning %d IPs with timeout of %v\n", ipCount, maxScanTime)
+	}
+
+	// Collect results with dynamic timeout protection
+	collectTimeout := time.After(maxScanTime)
 
 	for {
 		select {
@@ -609,11 +639,11 @@ func (ns *NetworkScanner) ScanNetwork(cidr string) error {
 			return context.Canceled
 
 		case <-collectTimeout:
-			// Timeout protection
+			// Timeout protection - now with appropriate timeouts
 			if ns.onComplete != nil {
 				ns.onComplete()
 			}
-			return fmt.Errorf("scan timeout exceeded")
+			return fmt.Errorf("scan timeout exceeded after %v (%d IPs)", maxScanTime, ipCount)
 		}
 	}
 }
@@ -642,6 +672,7 @@ func (ns *NetworkScanner) GetStats() ScanStats {
 }
 
 // NetworkScannerApp represents the enhanced GUI application
+
 type NetworkScannerApp struct {
 	app    fyne.App
 	window fyne.Window
@@ -676,6 +707,15 @@ type NetworkScannerApp struct {
 	clearButton               *widget.Button
 	fingerprintSelectedButton *widget.Button
 
+	// ADD THESE: Persistence components
+	persistenceBridge  *persistence.PersistenceBridge
+	enablePersistCheck *widget.Check
+	dbPathEntry        *widget.Entry
+	aggregateButton    *widget.Button
+	aggregateTable     *widget.Table
+	aggregateResults   []persistence.Device
+	aggregateMutex     sync.RWMutex
+
 	// Scanner
 	scanner *NetworkScanner
 
@@ -685,24 +725,32 @@ type NetworkScannerApp struct {
 }
 
 // NewNetworkScannerApp creates a new enhanced scanner application
+
 func NewNetworkScannerApp() *NetworkScannerApp {
 	// Create app with cyberpunk theme
 	app := app.NewWithID("gosnmp-network-scanner-enhanced")
 	app.Settings().SetTheme(&CyberpunkTheme{})
 	app.SetIcon(theme.ComputerIcon())
 
-	window := app.NewWindow("Go SNMP Network Scanner - Enhanced")
-	window.Resize(fyne.NewSize(1600, 1000)) // Slightly larger for additional columns
+	window := app.NewWindow("Go SNMP Network Scanner - Enhanced with Persistence")
+	window.Resize(fyne.NewSize(1800, 1200)) // Larger for aggregate view
+
+	// Initialize persistence (disabled by default)
+	dbPath := "./scanner_devices.json"
+	persistenceBridge := persistence.NewPersistenceBridge(dbPath, false) // Disabled by default
 
 	return &NetworkScannerApp{
-		app:     app,
-		window:  window,
-		scanner: NewNetworkScanner(),
-		results: make([]ScanResult, 0),
+		app:               app,
+		window:            window,
+		scanner:           NewNetworkScanner(),
+		results:           make([]ScanResult, 0),
+		persistenceBridge: persistenceBridge,
+		aggregateResults:  make([]persistence.Device, 0),
 	}
 }
 
 // initializeUI initializes the enhanced user interface
+
 func (app *NetworkScannerApp) initializeUI() {
 	// Input fields
 	app.networkEntry = widget.NewEntry()
@@ -749,6 +797,17 @@ func (app *NetworkScannerApp) initializeUI() {
 	)
 	app.fingerprintTypeSelect.SetSelected("basic")
 
+	// ADD THESE: Persistence UI components
+	app.enablePersistCheck = widget.NewCheck("Enable Device Persistence", app.onPersistenceToggle)
+	app.enablePersistCheck.SetChecked(false)
+
+	app.dbPathEntry = widget.NewEntry()
+	app.dbPathEntry.SetText("./scanner_devices.json")
+	app.dbPathEntry.Disable() // Initially disabled
+
+	app.aggregateButton = widget.NewButton("View Device Database", app.showAggregateView)
+	app.aggregateButton.Disable()
+
 	// Status components
 	app.progressBar = widget.NewProgressBar()
 	app.statusLabel = widget.NewLabel("Ready to scan")
@@ -770,12 +829,12 @@ func (app *NetworkScannerApp) initializeUI() {
 	app.fingerprintSelectedButton = widget.NewButton("Fingerprint Selected", app.fingerprintSelected)
 	app.fingerprintSelectedButton.Disable()
 
-	// Enhanced results table with more columns
+	// Enhanced results table with persistence column
 	app.resultsTable = widget.NewTable(
 		func() (int, int) {
 			app.mu.RLock()
 			defer app.mu.RUnlock()
-			return len(app.results) + 1, 10 // +1 for header, 10 columns now
+			return len(app.results) + 1, 11 // +1 for header, 11 columns (added persistence column)
 		},
 		func() fyne.CanvasObject {
 			return widget.NewLabel("")
@@ -784,8 +843,8 @@ func (app *NetworkScannerApp) initializeUI() {
 			label := obj.(*widget.Label)
 
 			if id.Row == 0 {
-				// Header
-				headers := []string{"Select", "IP", "Hostname", "Status", "RTT", "SNMP", "Version", "Vendor", "Confidence", "Description"}
+				// Header - MODIFIED to include persistence column
+				headers := []string{"Select", "IP", "Hostname", "Status", "RTT", "SNMP", "Version", "Vendor", "Confidence", "Description", "Stored"}
 				if id.Col < len(headers) {
 					label.SetText(headers[id.Col])
 					label.TextStyle.Bold = true
@@ -855,12 +914,18 @@ func (app *NetworkScannerApp) initializeUI() {
 						desc = desc[:40] + "..."
 					}
 					label.SetText(desc)
+				case 10: // NEW: Persistence status column
+					if app.persistenceBridge != nil && app.enablePersistCheck.Checked {
+						label.SetText("💾") // Saved to database
+					} else {
+						label.SetText("-")
+					}
 				}
 			}
 		},
 	)
 
-	// Set column widths
+	// Set column widths including new persistence column
 	app.resultsTable.SetColumnWidth(0, 50)  // Select
 	app.resultsTable.SetColumnWidth(1, 120) // IP
 	app.resultsTable.SetColumnWidth(2, 180) // Hostname
@@ -871,6 +936,7 @@ func (app *NetworkScannerApp) initializeUI() {
 	app.resultsTable.SetColumnWidth(7, 100) // Vendor
 	app.resultsTable.SetColumnWidth(8, 80)  // Confidence
 	app.resultsTable.SetColumnWidth(9, 300) // Description
+	app.resultsTable.SetColumnWidth(10, 60) // Stored
 
 	// Setup scanner callbacks
 	app.scanner.SetProgressCallback(app.updateProgress)
@@ -879,42 +945,120 @@ func (app *NetworkScannerApp) initializeUI() {
 }
 
 // createLayout creates the enhanced application layout
+
+// createLayout creates the application layout with proper proportions
 func (app *NetworkScannerApp) createLayout() fyne.CanvasObject {
-	// Basic configuration form
-	basicForm := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: "Network CIDR", Widget: app.networkEntry},
-			{Text: "Timeout (seconds)", Widget: app.timeoutEntry},
-			{Text: "Max Concurrent", Widget: app.concurrencyEntry},
-		},
-	}
+	// Set consistent entry field sizes
+	app.timeoutEntry.Resize(fyne.NewSize(60, 0))
+	app.concurrencyEntry.Resize(fyne.NewSize(60, 0))
 
-	// SNMP configuration
-	snmpForm := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: "SNMPv2c Communities", Widget: app.communitiesEntry},
-			{Text: "SNMPv3 Username", Widget: app.usernameEntry},
-			{Text: "Auth Protocol", Widget: app.authProtocolSelect},
-			{Text: "Auth Key", Widget: app.authKeyEntry},
-			{Text: "Priv Protocol", Widget: app.privProtocolSelect},
-			{Text: "Priv Key", Widget: app.privKeyEntry},
-		},
-	}
+	// === NETWORK CONFIGURATION CARD (Compact) ===
+	networkContent := container.NewVBox(
+		// Network CIDR - full width
+		container.NewBorder(nil, nil,
+			widget.NewLabel("Network CIDR:"), nil,
+			app.networkEntry,
+		),
+		// Timeout and concurrency in a clean row
+		container.NewGridWithColumns(2,
+			container.NewVBox(
+				widget.NewLabel("Timeout:"),
+				container.NewHBox(app.timeoutEntry, widget.NewLabel("sec")),
+			),
+			container.NewVBox(
+				widget.NewLabel("Max Concurrent:"),
+				app.concurrencyEntry,
+			),
+		),
+	)
 
-	// Fingerprinting configuration
-	fingerprintForm := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: "Enable Fingerprinting", Widget: app.enableFingerprintCheck},
-			{Text: "Fingerprint Type", Widget: app.fingerprintTypeSelect},
-		},
-	}
+	// === SNMP AUTHENTICATION CARD ===
+	snmpContent := container.NewVBox(
+		// Communities - full width
+		container.NewBorder(nil, nil,
+			widget.NewLabel("Communities:"), nil,
+			app.communitiesEntry,
+		),
+		// Username - full width
+		container.NewBorder(nil, nil,
+			widget.NewLabel("SNMPv3 Username:"), nil,
+			app.usernameEntry,
+		),
+		// Auth settings - protocol gets 30%, key gets 70%
+		container.NewVBox(
+			widget.NewLabel("Authentication:"),
+			container.NewBorder(nil, nil,
+				container.NewHBox(
+					app.authProtocolSelect,
+					widget.NewLabel("Key:"),
+				),
+				nil,
+				app.authKeyEntry,
+			),
+		),
+		// Priv settings - protocol gets 30%, key gets 70%
+		container.NewVBox(
+			widget.NewLabel("Privacy:"),
+			container.NewBorder(nil, nil,
+				container.NewHBox(
+					app.privProtocolSelect,
+					widget.NewLabel("Key:"),
+				),
+				nil,
+				app.privKeyEntry,
+			),
+		),
+	)
 
-	// Use cyberpunk cards for better styling
-	basicCard := NewCyberpunkCard("Basic Configuration", "", basicForm)
-	snmpCard := NewCyberpunkCard("SNMP Configuration", "", snmpForm)
-	fingerprintCard := NewCyberpunkCard("Vendor Fingerprinting", "Perform vendor detection during scan", fingerprintForm)
+	// === ADVANCED OPTIONS CARD ===
+	advancedContent := container.NewVBox(
+		// Fingerprinting toggle and type
+		container.NewVBox(
+			app.enableFingerprintCheck,
+			container.NewBorder(nil, nil,
+				widget.NewLabel("Type:"), nil,
+				app.fingerprintTypeSelect,
+			),
+		),
+		widget.NewSeparator(),
+		// Persistence toggle and path
+		container.NewVBox(
+			app.enablePersistCheck,
+			container.NewBorder(nil, nil,
+				widget.NewLabel("DB Path:"), nil,
+				app.dbPathEntry,
+			),
+		),
+	)
 
-	// Controls
+	// === CREATE THE THREE CARDS ===
+	networkCard := NewCyberpunkCard("Network", "", networkContent)
+	snmpCard := NewCyberpunkCard("SNMP Authentication                 ", "", snmpContent)
+	advancedCard := NewCyberpunkCard("Advanced Options", "", advancedContent)
+
+	// === PROPORTIONAL WIDTH CONFIGURATION ROW (Alternative Method) ===
+	// Set explicit sizes to control proportions better
+	networkCard.Resize(fyne.NewSize(250, 0))  // Smaller width for network
+	snmpCard.Resize(fyne.NewSize(400, 0))     // Medium width for SNMP
+	advancedCard.Resize(fyne.NewSize(400, 0)) // Medium width for advanced
+
+	configRow := container.NewHBox(networkCard, snmpCard, advancedCard)
+
+	// === STATUS BAR ===
+	thinStatusBar := container.NewBorder(
+		nil, nil,
+		app.statusLabel,
+		app.statsLabel,
+		app.progressBar,
+	)
+
+	// === TOP SECTION ===
+	topSection := container.NewVBox(
+		configRow,
+		thinStatusBar,
+	)
+
+	// === CONTROL BUTTONS ===
 	controlsContainer := container.NewHBox(
 		app.scanButton,
 		app.cancelButton,
@@ -923,35 +1067,20 @@ func (app *NetworkScannerApp) createLayout() fyne.CanvasObject {
 		app.clearButton,
 		widget.NewSeparator(),
 		app.fingerprintSelectedButton,
+		widget.NewSeparator(),
+		app.aggregateButton,
 	)
 
-	// Status panel
-	statusContainer := container.NewVBox(
-		app.statusLabel,
-		app.progressBar,
-		app.statsLabel,
+	// === RESULTS SECTION ===
+	resultsContainer := container.NewBorder(
+		controlsContainer, nil, nil, nil,
+		container.NewScroll(app.resultsTable),
 	)
 
-	statusCard := NewCyberpunkCard("Scan Status", "", statusContainer)
-
-	// Top panel - three cards in a row
-	topPanel := container.NewVBox(
-		container.NewHBox(basicCard, snmpCard, fingerprintCard),
-		statusCard,
-	)
-
-	// Results panel
-	resultsCard := NewCyberpunkCard("Enhanced Scan Results", "",
-		container.NewBorder(
-			controlsContainer, nil, nil, nil,
-			container.NewScroll(app.resultsTable),
-		),
-	)
-
-	// Main layout
+	// === FINAL LAYOUT ===
 	return container.NewBorder(
-		topPanel, nil, nil, nil,
-		resultsCard,
+		topSection, nil, nil, nil,
+		resultsContainer,
 	)
 }
 
@@ -1067,10 +1196,21 @@ func (app *NetworkScannerApp) updateProgress(stats ScanStats) {
 }
 
 // addResult adds a scan result to the table
+
 func (app *NetworkScannerApp) addResult(result ScanResult) {
+	// FILTER: Only process hosts that are responding (Up)
+	if !result.Responding {
+		return // Skip down hosts completely
+	}
+
 	app.mu.Lock()
 	app.results = append(app.results, result)
 	app.mu.Unlock()
+
+	// Record to persistence if enabled (only responding hosts)
+	if app.persistenceBridge != nil && app.enablePersistCheck.Checked {
+		app.recordScanResultToPersistence(result)
+	}
 
 	app.resultsTable.Refresh()
 }
@@ -1161,19 +1301,23 @@ func (app *NetworkScannerApp) performBatchFingerprinting(devices []ScanResult) {
 }
 
 // scanComplete handles scan completion
+
 func (app *NetworkScannerApp) scanComplete() {
 	app.scanButton.Enable()
 	app.cancelButton.Disable()
 
 	app.mu.RLock()
 	hasResults := len(app.results) > 0
-	var snmpCount, fingerprintCount int
+	var snmpCount, fingerprintCount, persistedCount int
 	for _, result := range app.results {
 		if result.SNMPReady {
 			snmpCount++
 		}
 		if result.FingerprintPerformed {
 			fingerprintCount++
+		}
+		if app.persistenceBridge != nil && app.enablePersistCheck.Checked {
+			persistedCount++
 		}
 	}
 	app.mu.RUnlock()
@@ -1190,12 +1334,24 @@ func (app *NetworkScannerApp) scanComplete() {
 
 	stats := app.scanner.GetStats()
 	statusMsg := fmt.Sprintf("Scan complete! %d hosts scanned in %v", stats.Scanned, stats.ElapsedTime.Truncate(time.Second))
+
 	if fingerprintCount > 0 {
 		statusMsg += fmt.Sprintf(" (%d fingerprinted)", fingerprintCount)
 	}
-	app.statusLabel.SetText(statusMsg)
 
+	// NEW: Show persistence summary
+	if persistedCount > 0 {
+		statusMsg += fmt.Sprintf(" (%d stored in database)", persistedCount)
+	}
+
+	app.statusLabel.SetText(statusMsg)
 	app.progressBar.SetValue(1.0)
+
+	// NEW: Update aggregate view if it's open
+	if app.aggregateTable != nil {
+		app.loadAggregateDevices()
+		app.aggregateTable.Refresh()
+	}
 }
 
 // exportResults exports enhanced scan results
@@ -1283,14 +1439,575 @@ func (app *NetworkScannerApp) saveResultsCSV(writer fyne.URIWriteCloser) error {
 	return nil
 }
 
+// onPersistenceToggle handles persistence enable/disable
+func (app *NetworkScannerApp) onPersistenceToggle(checked bool) {
+	if checked {
+		// Enable persistence
+		dbPath := strings.TrimSpace(app.dbPathEntry.Text)
+		if dbPath == "" {
+			dbPath = "./scanner_devices.json"
+			app.dbPathEntry.SetText(dbPath)
+		}
+
+		// Close existing bridge if any
+		if app.persistenceBridge != nil {
+			app.persistenceBridge.Close()
+		}
+
+		// Create new persistence bridge
+		app.persistenceBridge = persistence.NewPersistenceBridge(dbPath, true)
+
+		app.dbPathEntry.Enable()
+		app.aggregateButton.Enable()
+
+		// Load existing devices for display
+		app.loadAggregateDevices()
+
+		app.statusLabel.SetText("Persistence enabled: " + dbPath)
+	} else {
+		// Disable persistence
+		if app.persistenceBridge != nil {
+			app.persistenceBridge.Close()
+			app.persistenceBridge = persistence.NewPersistenceBridge("", false)
+		}
+
+		app.dbPathEntry.Disable()
+		app.aggregateButton.Disable()
+
+		app.statusLabel.SetText("Persistence disabled")
+	}
+
+	// Refresh table to show/hide persistence indicators
+	app.resultsTable.Refresh()
+}
+
+// recordScanResultToPersistence converts and records scan result
+
+func (app *NetworkScannerApp) recordScanResultToPersistence(result ScanResult) {
+	// Convert ScanResult to LegacyFingerprint format
+	legacyResult := persistence.LegacyFingerprint{
+		IPAddress:       result.IP,
+		Vendor:          result.DetectedVendor,
+		DeviceType:      app.inferDeviceType(result), // Now uses YAML config
+		Model:           app.extractModelFromVendorData(result.VendorData),
+		SerialNumber:    app.extractSerialFromVendorData(result.VendorData),
+		OSVersion:       app.extractVersionFromVendorData(result.VendorData),
+		FirmwareVersion: "",
+		SysObjectID:     app.extractSysObjectID(result),
+		SysDescr:        result.SystemDescr,
+		SNMPData:        app.convertVendorDataToSNMPData(result),
+		ConfidenceScore: app.convertConfidenceToScore(result.VendorConfidence),
+		DetectionMethod: result.VendorMethod,
+	}
+
+	app.persistenceBridge.RecordScanResult(legacyResult)
+}
+
+// Helper functions for data conversion
+
+func (app *NetworkScannerApp) inferDeviceType(result ScanResult) string {
+	// Use YAML config to determine device type
+	if fingerprint.GlobalConfigManager != nil && fingerprint.GlobalConfigManager.GetConfig() != nil {
+		config := fingerprint.GlobalConfigManager.GetConfig()
+
+		// Get vendor config from YAML
+		if vendorConfig, exists := config.Vendors[result.DetectedVendor]; exists {
+			// If vendor has only one device type, use it
+			if len(vendorConfig.DeviceTypes) == 1 {
+				return vendorConfig.DeviceTypes[0]
+			}
+
+			// If multiple device types, try to infer from sysDescr
+			deviceType := app.inferDeviceTypeFromDescription(result.SystemDescr, vendorConfig.DeviceTypes)
+			if deviceType != "unknown" {
+				return deviceType
+			}
+
+			// Fallback to first device type for this vendor
+			if len(vendorConfig.DeviceTypes) > 0 {
+				return vendorConfig.DeviceTypes[0]
+			}
+		}
+	}
+
+	// Fallback: try to infer from description if no YAML config
+	return app.inferDeviceTypeFromDescription(result.SystemDescr, nil)
+}
+
+// Enhanced function to get device type directly from YAML config
+func (app *NetworkScannerApp) getDeviceTypeFromYAML(vendor string, sysDescr string) string {
+	if fingerprint.GlobalConfigManager == nil || fingerprint.GlobalConfigManager.GetConfig() == nil {
+		return "unknown"
+	}
+
+	config := fingerprint.GlobalConfigManager.GetConfig()
+	vendorConfig, exists := config.Vendors[vendor]
+	if !exists {
+		return "unknown"
+	}
+
+	// If vendor configuration specifies device types, use them
+	if len(vendorConfig.DeviceTypes) == 0 {
+		return "unknown"
+	}
+
+	// Single device type - use it
+	if len(vendorConfig.DeviceTypes) == 1 {
+		return vendorConfig.DeviceTypes[0]
+	}
+
+	// Multiple device types - try to determine from description
+	return app.inferDeviceTypeFromDescription(sysDescr, vendorConfig.DeviceTypes)
+}
+
+func (app *NetworkScannerApp) inferDeviceTypeFromDescription(sysDescr string, allowedTypes []string) string {
+	if sysDescr == "" {
+		return "unknown"
+	}
+
+	sysDescrLower := strings.ToLower(sysDescr)
+
+	// Define type patterns that might be found in descriptions
+	typePatterns := map[string][]string{
+		"switch":              {"switch", "switching"},
+		"router":              {"router", "routing"},
+		"firewall":            {"firewall", "security gateway", "pix", "asa"},
+		"wireless":            {"wireless", "access point", "ap", "wifi"},
+		"server":              {"server", "poweredge", "proliant"},
+		"printer":             {"printer", "laserjet", "officejet", "deskjet"},
+		"print_server":        {"ethernet multi-environment", "jetdirect", "print server"},
+		"network_interface":   {"network interface", "ethernet adapter"},
+		"multifunction":       {"multifunction", "all-in-one", "mfp"},
+		"ups":                 {"ups", "uninterruptible", "power supply"},
+		"pdu":                 {"pdu", "power distribution"},
+		"storage":             {"storage", "nas", "san"},
+		"access_point":        {"access point", "wireless ap"},
+		"wireless_controller": {"wireless controller", "wlc"},
+	}
+
+	// Check each pattern against the description
+	for deviceType, patterns := range typePatterns {
+		// If allowedTypes is specified (from YAML), only check allowed types
+		if allowedTypes != nil {
+			allowed := false
+			for _, allowedType := range allowedTypes {
+				if allowedType == deviceType {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				continue
+			}
+		}
+
+		// Check if any pattern matches
+		for _, pattern := range patterns {
+			if strings.Contains(sysDescrLower, pattern) {
+				return deviceType
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+func (app *NetworkScannerApp) extractModelFromVendorData(vendorData map[string]string) string {
+	if vendorData == nil {
+		return ""
+	}
+
+	for key, value := range vendorData {
+		keyLower := strings.ToLower(key)
+		if strings.Contains(keyLower, "model") ||
+			strings.Contains(keyLower, "product") ||
+			strings.Contains(keyLower, "chassis") {
+			return value
+		}
+	}
+	return ""
+}
+
+func (app *NetworkScannerApp) extractSerialFromVendorData(vendorData map[string]string) string {
+	if vendorData == nil {
+		return ""
+	}
+
+	for key, value := range vendorData {
+		keyLower := strings.ToLower(key)
+		if strings.Contains(keyLower, "serial") ||
+			strings.Contains(keyLower, "service tag") {
+			return value
+		}
+	}
+	return ""
+}
+
+func (app *NetworkScannerApp) extractVersionFromVendorData(vendorData map[string]string) string {
+	if vendorData == nil {
+		return ""
+	}
+
+	for key, value := range vendorData {
+		keyLower := strings.ToLower(key)
+		if strings.Contains(keyLower, "version") ||
+			strings.Contains(keyLower, "firmware") ||
+			strings.Contains(keyLower, "software") {
+			return value
+		}
+	}
+	return ""
+}
+
+func (app *NetworkScannerApp) extractSysObjectID(result ScanResult) string {
+	// Look for sysObjectID in vendor data
+	if result.VendorData != nil {
+		for key, value := range result.VendorData {
+			if strings.Contains(strings.ToLower(key), "object") ||
+				strings.Contains(strings.ToLower(key), "oid") {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func (app *NetworkScannerApp) convertVendorDataToSNMPData(result ScanResult) map[string]string {
+	snmpData := make(map[string]string)
+
+	// Add basic SNMP data
+	if result.SystemDescr != "" {
+		snmpData["1.3.6.1.2.1.1.1.0"] = result.SystemDescr
+	}
+	if result.SystemName != "" {
+		snmpData["1.3.6.1.2.1.1.5.0"] = result.SystemName
+	}
+
+	// Add vendor-specific data
+	if result.VendorData != nil {
+		for key, value := range result.VendorData {
+			snmpData[key] = value
+		}
+	}
+
+	return snmpData
+}
+
+func (app *NetworkScannerApp) convertConfidenceToScore(confidence string) int {
+	switch strings.ToLower(confidence) {
+	case "high":
+		return 90
+	case "medium":
+		return 70
+	case "low":
+		return 50
+	default:
+		return 30
+	}
+}
+
+// loadAggregateDevices loads devices from persistence for display
+func (app *NetworkScannerApp) loadAggregateDevices() {
+	if app.persistenceBridge == nil || !app.enablePersistCheck.Checked {
+		return
+	}
+
+	devices := app.persistenceBridge.GetAggregateDevices()
+
+	app.aggregateMutex.Lock()
+	app.aggregateResults = devices
+	app.aggregateMutex.Unlock()
+}
+
+// showAggregateView displays the device database window
+func (app *NetworkScannerApp) showAggregateView() {
+	app.loadAggregateDevices()
+
+	// Create aggregate table
+	app.aggregateTable = widget.NewTable(
+		func() (int, int) {
+			app.aggregateMutex.RLock()
+			defer app.aggregateMutex.RUnlock()
+			return len(app.aggregateResults) + 1, 8 // Header + devices, 8 columns
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("")
+		},
+		func(id widget.TableCellID, obj fyne.CanvasObject) {
+			label := obj.(*widget.Label)
+
+			if id.Row == 0 {
+				// Header
+				headers := []string{"Primary IP", "All IPs", "Vendor", "Device Type", "Model", "First Seen", "Last Seen", "Scan Count"}
+				if id.Col < len(headers) {
+					label.SetText(headers[id.Col])
+					label.TextStyle.Bold = true
+				}
+				return
+			}
+
+			app.aggregateMutex.RLock()
+			defer app.aggregateMutex.RUnlock()
+
+			if id.Row-1 < len(app.aggregateResults) {
+				device := app.aggregateResults[id.Row-1]
+
+				switch id.Col {
+				case 0:
+					label.SetText(device.PrimaryIP)
+				case 1:
+					if len(device.AllIPs) > 1 {
+						label.SetText(fmt.Sprintf("%s +%d", device.PrimaryIP, len(device.AllIPs)-1))
+					} else {
+						label.SetText(device.PrimaryIP)
+					}
+				case 2:
+					label.SetText(device.Vendor)
+				case 3:
+					label.SetText(device.DeviceType)
+				case 4:
+					label.SetText(device.Model)
+				case 5:
+					label.SetText(device.FirstSeen.Format("2006-01-02"))
+				case 6:
+					label.SetText(device.LastSeen.Format("2006-01-02"))
+				case 7:
+					label.SetText(fmt.Sprintf("%d", device.ScanCount))
+				}
+			}
+		},
+	)
+
+	// Set column widths
+	app.aggregateTable.SetColumnWidth(0, 120) // Primary IP
+	app.aggregateTable.SetColumnWidth(1, 120) // All IPs
+	app.aggregateTable.SetColumnWidth(2, 100) // Vendor
+	app.aggregateTable.SetColumnWidth(3, 100) // Device Type
+	app.aggregateTable.SetColumnWidth(4, 150) // Model
+	app.aggregateTable.SetColumnWidth(5, 100) // First Seen
+	app.aggregateTable.SetColumnWidth(6, 100) // Last Seen
+	app.aggregateTable.SetColumnWidth(7, 80)  // Scan Count
+
+	// Create aggregate view window
+	aggregateWindow := app.app.NewWindow("Device Database - Aggregate View")
+	aggregateWindow.Resize(fyne.NewSize(1200, 800))
+
+	// Statistics
+	stats := app.persistenceBridge.GetStatistics()
+	var statsText string
+	if stats != nil {
+		statsText = fmt.Sprintf("Total Devices: %d | Total Sessions: %d | Avg Confidence: %.1f%%",
+			stats.TotalDevices, stats.TotalSessions, stats.AvgConfidence)
+	} else {
+		statsText = "No statistics available"
+	}
+
+	statsLabel := widget.NewLabel(statsText)
+
+	// Buttons
+	refreshBtn := widget.NewButton("Refresh", func() {
+		app.loadAggregateDevices()
+		app.aggregateTable.Refresh()
+
+		// Update stats
+		stats := app.persistenceBridge.GetStatistics()
+		if stats != nil {
+			statsText := fmt.Sprintf("Total Devices: %d | Total Sessions: %d | Avg Confidence: %.1f%%",
+				stats.TotalDevices, stats.TotalSessions, stats.AvgConfidence)
+			statsLabel.SetText(statsText)
+		}
+	})
+
+	exportBtn := widget.NewButton("Export Database", func() {
+		app.exportAggregateData(aggregateWindow)
+	})
+
+	buttonContainer := container.NewHBox(refreshBtn, exportBtn)
+
+	content := container.NewBorder(
+		container.NewVBox(statsLabel, buttonContainer),
+		nil, nil, nil,
+		container.NewScroll(app.aggregateTable),
+	)
+
+	aggregateWindow.SetContent(content)
+	aggregateWindow.Show()
+}
+
+// exportAggregateData exports the complete device database
+func (app *NetworkScannerApp) exportAggregateData(parent fyne.Window) {
+	if app.persistenceBridge == nil {
+		return
+	}
+
+	jsonData, err := app.persistenceBridge.ExportToJSON()
+	if err != nil {
+		dialog.ShowError(err, parent)
+		return
+	}
+
+	dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			return
+		}
+		defer writer.Close()
+
+		if _, err := writer.Write(jsonData); err != nil {
+			dialog.ShowError(err, parent)
+		} else {
+			dialog.ShowInformation("Export Complete",
+				fmt.Sprintf("Device database exported to %s", writer.URI().Name()),
+				parent)
+		}
+	}, parent)
+}
+
+// getScreenSize returns the primary screen dimensions
+func getScreenSize() (width, height float32) {
+	switch runtime.GOOS {
+	case "windows":
+		return getWindowsScreenSize()
+	case "darwin": // macOS
+		return getMacOSScreenSize()
+	case "linux":
+		return getLinuxScreenSize()
+	default:
+		// Fallback for unknown systems
+		return 1920, 1080
+	}
+}
+
+// getWindowsScreenSize gets screen size on Windows
+func getWindowsScreenSize() (width, height float32) {
+	cmd := exec.Command("wmic", "desktopmonitor", "get", "screenwidth,screenheight", "/format:value")
+	output, err := cmd.Output()
+	if err != nil {
+		return 1920, 1080 // Fallback
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var w, h int
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ScreenWidth=") {
+			if val, err := strconv.Atoi(strings.TrimPrefix(line, "ScreenWidth=")); err == nil {
+				w = val
+			}
+		}
+		if strings.HasPrefix(line, "ScreenHeight=") {
+			if val, err := strconv.Atoi(strings.TrimPrefix(line, "ScreenHeight=")); err == nil {
+				h = val
+			}
+		}
+	}
+
+	if w > 0 && h > 0 {
+		return float32(w), float32(h)
+	}
+	return 1920, 1080 // Fallback
+}
+
+// getMacOSScreenSize gets screen size on macOS
+func getMacOSScreenSize() (width, height float32) {
+	cmd := exec.Command("system_profiler", "SPDisplaysDataType")
+	output, err := cmd.Output()
+	if err != nil {
+		return 1920, 1080 // Fallback
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "Resolution:") {
+			// Parse "Resolution: 3840 x 2160" format
+			parts := strings.Fields(line)
+			if len(parts) >= 4 {
+				if w, err := strconv.Atoi(parts[1]); err == nil {
+					if h, err := strconv.Atoi(parts[3]); err == nil {
+						return float32(w), float32(h)
+					}
+				}
+			}
+		}
+	}
+	return 1920, 1080 // Fallback
+}
+
+// getLinuxScreenSize gets screen size on Linux
+func getLinuxScreenSize() (width, height float32) {
+	// Try xrandr first (most common)
+	cmd := exec.Command("xrandr")
+	output, err := cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "*") && strings.Contains(line, "x") {
+				// Parse "1920x1080" format
+				parts := strings.Fields(line)
+				for _, part := range parts {
+					if strings.Contains(part, "x") && !strings.Contains(part, "*") {
+						dims := strings.Split(part, "x")
+						if len(dims) == 2 {
+							if w, err := strconv.Atoi(dims[0]); err == nil {
+								if h, err := strconv.Atoi(dims[1]); err == nil {
+									return float32(w), float32(h)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Try xdpyinfo as fallback
+	cmd = exec.Command("xdpyinfo")
+	output, err = cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "dimensions:") {
+				// Parse "dimensions: 3840x2160 pixels"
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					dims := strings.Split(parts[1], "x")
+					if len(dims) == 2 {
+						if w, err := strconv.Atoi(dims[0]); err == nil {
+							if h, err := strconv.Atoi(dims[1]); err == nil {
+								return float32(w), float32(h)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return 1920, 1080 // Fallback
+}
+
 // Run starts the enhanced application
 func (app *NetworkScannerApp) Run() {
 	app.initializeUI()
+
+	// Get actual screen dimensions
+	screenWidth, screenHeight := getScreenSize()
+
+	// Calculate 90% of actual screen size
+	windowWidth := screenWidth * 0.75
+	windowHeight := screenHeight * 0.70
+
+	// Set window size and center it
+	app.window.Resize(fyne.NewSize(windowWidth, windowHeight))
+	app.window.CenterOnScreen()
+
 	app.window.SetContent(app.createLayout())
 	app.window.ShowAndRun()
 }
 
 func main() {
 	app := NewNetworkScannerApp()
+
 	app.Run()
 }

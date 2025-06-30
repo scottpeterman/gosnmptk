@@ -32,6 +32,90 @@ generic_oids:
 
 # Vendor-specific configurations
 vendors:
+  # Add Lexmark before Aruba to prevent misclassification
+  lexmark:
+    display_name: "Lexmark International"
+    enterprise_oid: "1.3.6.1.4.1.641"
+    detection_patterns:
+      - "lexmark"
+      - "mx822ade"
+      - "mx820"
+      - "cx943adxse"
+      - "cx410de"
+      - "cx820"
+      - "ms823dn"
+      - "mxtgw"
+      - "cxtpc"
+      - "cxtpp"
+      - "msngw"
+      - "nh41"
+    oid_patterns:
+      - "1.3.6.1.4.1.641."
+      - "lexmark"
+      - "mxtgw"
+      - "cxtpc"
+      - "cxtpp"
+      - "msngw"
+    device_types:
+      - "printer"
+      - "multifunction_printer"
+    fingerprint_oids:
+      - name: "Lexmark Model"
+        oid: "1.3.6.1.4.1.641.2.1.2.1.2.1"
+        priority: 1
+        description: "Lexmark printer model"
+      - name: "Lexmark Firmware Version"
+        oid: "1.3.6.1.4.1.641.2.1.2.1.3.1"
+        priority: 1
+        description: "Lexmark firmware version"
+      - name: "Lexmark Serial Number"
+        oid: "1.3.6.1.4.1.641.2.1.2.1.6.1"
+        priority: 1
+        description: "Lexmark serial number"
+      - name: "Printer Status"
+        oid: "1.3.6.1.2.1.25.3.2.1.5.1"
+        priority: 2
+        description: "Standard printer status"
+
+  # Add CloudGenix/Prisma SD-WAN
+  palo_alto_sdwan:
+    display_name: "Palo Alto Networks (CloudGenix/Prisma SD-WAN)"
+    enterprise_oid: "1.3.6.1.4.1.25461"
+    detection_patterns:
+      - "ion 3000"
+      - "ion 1000"
+      - "ion 2000"
+      - "ion 5000"
+      - "ion 7000"
+      - "ion 9000"
+      - "cloudgenix"
+      - "prisma sd-wan"
+      - "prisma sdwan"
+    oid_patterns:
+      - "1.3.6.1.4.1.25461."
+      - "ion 3000"
+      - "ion 1000"
+      - "ion 2000"
+      - "cloudgenix"
+      - "prisma"
+    device_types:
+      - "sdwan_gateway"
+      - "edge_device"
+      - "wan_optimizer"
+    fingerprint_oids:
+      - name: "Ion Model"
+        oid: "1.3.6.1.4.1.25461.2.1.2.2.1.0"
+        priority: 1
+        description: "CloudGenix Ion model"
+      - name: "Ion Serial Number"
+        oid: "1.3.6.1.4.1.25461.2.1.2.2.3.0"
+        priority: 1
+        description: "CloudGenix Ion serial number"
+      - name: "Ion Software Version"
+        oid: "1.3.6.1.4.1.25461.2.1.2.2.2.0"
+        priority: 1
+        description: "CloudGenix Ion software version"
+
   cisco:
     display_name: "Cisco Systems"
     enterprise_oid: "1.3.6.1.4.1.9"
@@ -117,6 +201,14 @@ vendors:
       - "switch"
       - "wireless_controller"
       - "access_point"
+    # Add exclusion patterns to prevent Lexmark misclassification
+    exclusion_patterns:
+      - "lexmark"
+      - "mxtgw"
+      - "cxtpc"
+      - "cxtpp"
+      - "msngw"
+      - "nh41"
     fingerprint_oids:
       - name: "HP Entity Module Description"
         oid: "1.3.6.1.4.1.11.2.14.11.1.2.3.1.4.1"
@@ -133,6 +225,40 @@ vendors:
         priority: 1
         description: "Aruba wireless controller model"
         device_types: ["wireless_controller"]
+
+  hp_network:
+    display_name: "HP Network Interfaces"
+    enterprise_oid: "1.3.6.1.4.1.11"
+    detection_patterns:
+      - "hp ethernet multi-environment"
+      - "hp ethernet"
+      - "hp jetdirect"
+      - "jetdirect"
+      - "hp network"
+      - "hewlett-packard ethernet"
+      - "hpbea"
+      - "hpjet"
+    oid_patterns:
+      - "1.3.6.1.4.1.11.2.4.3."
+      - "1.3.6.1.4.1.11.2.3.7."
+      - "jetdirect"
+      - "hp ethernet"
+    device_types:
+      - "print_server"
+      - "network_interface"
+    fingerprint_oids:
+      - name: "JetDirect Model"
+        oid: "1.3.6.1.4.1.11.2.4.3.1.1.3.1.0"
+        priority: 1
+        description: "HP JetDirect model identification"
+      - name: "JetDirect Firmware"
+        oid: "1.3.6.1.4.1.11.2.4.3.1.1.3.2.0"
+        priority: 1
+        description: "HP JetDirect firmware version"
+      - name: "Network Interface Status"
+        oid: "1.3.6.1.4.1.11.2.4.3.1.1.2.1.0"
+        priority: 2
+        description: "HP network interface status"
 
   hp_printer:
     display_name: "HP Printers"
@@ -161,6 +287,7 @@ vendors:
       - "router"
       - "aruba"
       - "procurve"
+      - "lexmark"
     fingerprint_oids:
       - name: "HP Printer Model"
         oid: "1.3.6.1.4.1.11.2.3.9.4.2.1.1.3.3.0"
@@ -243,6 +370,15 @@ vendors:
     device_types:
       - "firewall"
       - "management"
+    # Add exclusion patterns to prevent confusion with SD-WAN
+    exclusion_patterns:
+      - "ion 1000"
+      - "ion 2000"
+      - "ion 3000"
+      - "ion 5000"
+      - "ion 7000"
+      - "ion 9000"
+      - "cloudgenix"
     fingerprint_oids:
       - name: "PAN Model"
         oid: "1.3.6.1.4.1.25461.2.1.2.1.1.0"
@@ -280,13 +416,16 @@ vendors:
 detection_rules:
   # Order matters - first match wins for ambiguous cases
   priority_order:
-    - "hp_printer"  # Check printers before general HP networking
+    - "lexmark"         # Check Lexmark first to prevent Aruba misclassification
+    - "palo_alto_sdwan" # Check CloudGenix/Prisma SD-WAN before general Palo Alto
+    - "hp_printer"      # Check printers before general HP networking
+    - "hp_network"
     - "cisco"
     - "arista"
     - "palo_alto"
     - "fortinet"
     - "dell"
-    - "aruba"      # After hp_printer to avoid conflicts
+    - "aruba"           # After lexmark to avoid conflicts
     - "apc"
   
   confidence_levels:

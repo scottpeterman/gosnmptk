@@ -1,126 +1,135 @@
 # Go SNMP Tool Kit
 
-A comprehensive SNMP testing and vendor fingerprinting toolkit built in Go with a modern GUI interface. This tool provides enterprise-grade network device discovery, SNMP operations, and vendor-specific fingerprinting capabilities with persistent user settings.
+A comprehensive SNMP testing and network discovery suite built in Go with modern GUI interfaces. This toolkit provides enterprise-grade network device discovery, SNMP operations, vendor-specific fingerprinting, and advanced network scanning capabilities with data persistence.
 
-![Screenshot](https://raw.githubusercontent.com/scottpeterman/gosnmptk/refs/heads/main/screenshots/screens1.gif)
+![Screenshot](https://raw.githubusercontent.com/scottpeterman/gosnmptk/refs/heads/main/screenshots/screens2.gif)
 
-## 📥 Quick Download
+## Download and Installation
 
+### Windows - Ready to Use
 | Platform | Direct Download |
 |----------|----------------|
-| **Windows** | [⬇️ snmptk.zip](https://github.com/scottpeterman/gosnmptk/raw/refs/heads/main/dist/snmptk.zip) |
+| **Windows** | [Download snmptk.zip](https://github.com/scottpeterman/gosnmptk/raw/refs/heads/main/dist/snmptk.zip) |
 
+**Windows users**: Download and run - no installation required. Contains all four applications.
 
-> 💡 **Just download and run** - no installation required!
-## Features
+### Linux and macOS - Build from Source
+Other platforms require building from source using the included build scripts:
 
-### 🔍 **Comprehensive Vendor Fingerprinting**
-- **Supported Vendors**: Cisco, Dell (iDRAC), Arista, Aruba/HP ProCurve, Fortinet, Palo Alto, APC
-- **Smart Detection**: Multi-layer vendor detection using sysDescr, sysContact, sysName, and vendor-specific OIDs
-- **Device Type Recognition**: Distinguishes between device types (switches, servers, wireless controllers, etc.)
-- **Rich Data Extraction**: Collects model numbers, serial numbers, firmware versions, hardware revisions
+```bash
+# Clone repository
+git clone https://github.com/scottpeterman/gosnmptk.git
+cd gosnmptk
 
-### 🛠 **SNMP Operations**
-- **Full SNMP Support**: GET, GETNEXT, GETBULK, WALK operations
-- **Protocol Support**: SNMPv2c and SNMPv3 with comprehensive crypto options
-- **Authentication**: MD5, SHA, SHA224, SHA256, SHA384, SHA512
-- **Privacy**: DES, AES128, AES192, AES256
-- **Bulk Operations**: Test all common MIB-II OIDs with a single click
+# Linux/WSL2
+./build_linux.sh --target all
 
-### 🚀 **Performance & Stability**
-- **Serial Processing**: Stable, device-friendly approach that prevents SNMP agent overload
-- **Configurable Timeouts**: Customizable timeout and retry settings
-- **Progress Tracking**: Real-time feedback on fingerprinting progress
-- **Error Handling**: Comprehensive error reporting and graceful failure handling
+# macOS (requires actual Mac hardware)
+./build_mac.sh --target all
+```
 
-### 🎨 **Modern GUI Interface**
-- **Tabbed Interface**: Organized workflow with Connection, Operations, Fingerprinting, and Results tabs
-- **Real-time Results**: Live markdown-formatted results with color-coded status indicators
-- **Credential Management**: Secure handling of SNMP credentials with password masking
-- **Persistent Settings**: Automatically saves and restores connection settings between sessions
-- **Export Ready**: Results formatted for easy copying and documentation
+See the [Building Applications](#building-applications) section for detailed instructions.
+
+## Suite Overview
+
+The Go SNMP Tool Kit consists of four specialized applications:
+
+### 1. SNMP Tool Kit (`snmptk`)
+**Interactive SNMP client with vendor fingerprinting**
+- Individual device testing and analysis
+- Comprehensive vendor detection
+- SNMP operations (GET, WALK, BULK)
+- Real-time results with detailed logging
+
+### 2. Network Scanner (`scanner`)
+**Basic network discovery tool**
+- CIDR-based network scanning
+- Concurrent host discovery
+- SNMP capability detection
+- Simple CSV export
+
+### 3. Enhanced Network Scanner (`scanner-ext`)
+**Advanced network scanner with persistence**
+- High-performance concurrent scanning
+- Device persistence and deduplication
+- Vendor fingerprinting integration
+- Database aggregation and reporting
+- Dynamic timeout scaling based on network size
+
+### 4. Report Generator (`report`)
+**Analytics and reporting tool**
+- Device database analysis
+- Network topology insights
+- Performance metrics
+- CSV export and data visualization
+
+## Core Features
+
+### Comprehensive Vendor Fingerprinting
+- **Supported Vendors**: Cisco, Dell (iDRAC), Arista, Aruba/HP, Fortinet, Palo Alto, APC
+- **Smart Detection**: Multi-layer vendor detection using system descriptors and vendor-specific OIDs
+- **Device Type Recognition**: Automatic classification of switches, servers, wireless controllers, and other device types
+- **Rich Data Extraction**: Model numbers, serial numbers, firmware versions, hardware revisions
+
+### SNMP Operations
+- **Protocol Support**: SNMPv2c and SNMPv3 with comprehensive authentication options
+- **Authentication Protocols**: MD5, SHA, SHA224, SHA256, SHA384, SHA512
+- **Privacy Protocols**: DES, AES128, AES192, AES256
+- **Operations**: GET, GETNEXT, GETBULK, WALK with configurable parameters
+
+### Network Scanning Capabilities
+- **Concurrent Processing**: Configurable concurrency levels for optimal performance
+- **CIDR Support**: Full subnet scanning with automatic IP range generation
+- **Dynamic Timeouts**: Intelligent timeout scaling based on network size
+- **Connectivity Testing**: Multi-port TCP connectivity verification
+- **Performance Optimization**: Device-friendly scanning to prevent agent overload
+
+### Data Persistence and Analytics
+- **Device Database**: Persistent storage with deduplication
+- **Scan History**: Complete audit trail of discovery sessions
+- **Aggregate Reporting**: Network-wide statistics and trends
+- **Export Capabilities**: CSV and JSON export formats
 
 ## Architecture
 
 ```
+gosnmptk/
 ├── cmd/
-│   └── snmptk/
-│       ├── main.go          # GUI application entry point
-│       └── Icon.png         # Application icon (auto-generated)
+│   ├── snmptk/           # Interactive SNMP toolkit
+│   ├── scanner/          # Basic network scanner
+│   ├── scanner-ext/      # Enhanced scanner with persistence
+│   └── report-generator/ # Analytics and reporting
 ├── pkg/
-│   ├── fingerprint/
-│   │   ├── client.go         # Fingerprinting client and logic
-│   │   └── detector.go       # Vendor detection and OID definitions
-│   └── snmp/
-│       └── client.go         # SNMP protocol implementation
-├── dist/                     # Build output directory
-├── build_windows.ps1         # Windows build script
-├── build_linux.sh           # Linux build script (WSL2)
-├── build_mac.sh             # macOS build script (macOS only)
-└── go.mod
+│   ├── fingerprint/      # Vendor detection engine
+│   ├── persistence/      # Data storage and management
+│   └── snmp/            # SNMP protocol implementation
+├── config/              # YAML vendor configurations
+├── dist/               # Build outputs
+└── internal/           # Internal resources and utilities
 ```
 
 ### Core Components
 
-#### **Fingerprinting Engine** (`pkg/fingerprint/`)
-- **Client**: Manages SNMP connections and orchestrates fingerprinting operations
-- **Detector**: Contains vendor-specific detection patterns and OID definitions
-- **Serial Processing**: Queries OIDs sequentially to ensure device stability
+#### Fingerprinting Engine (`pkg/fingerprint/`)
+- **YAML-Based Configuration**: Extensible vendor definitions without code changes
+- **Detection Algorithms**: Pattern matching and OID-based identification
+- **Confidence Scoring**: Multi-factor confidence assessment
 
-#### **SNMP Layer** (`pkg/snmp/`)
-- **Protocol Handling**: SNMPv2c and SNMPv3 implementation
-- **Authentication**: Comprehensive crypto protocol support
-- **Connection Management**: Timeout, retry, and error handling
+#### Persistence Layer (`pkg/persistence/`)
+- **Device Management**: Automatic deduplication and aggregation
+- **Session Tracking**: Complete scan history and statistics
+- **Data Export**: Flexible export formats for integration
 
-#### **GUI Application** (`cmd/snmptk/`)
-- **Fyne Framework**: Modern, cross-platform GUI toolkit
-- **Responsive Design**: Adaptive interface with real-time updates
-- **State Management**: Proper handling of UI state and user interactions
-- **Settings Persistence**: Automatic save/restore of user preferences
+#### SNMP Implementation (`pkg/snmp/`)
+- **Protocol Handling**: Complete SNMPv2c and SNMPv3 support
+- **Connection Management**: Robust timeout and retry mechanisms
+- **Error Recovery**: Graceful handling of device communication issues
 
-## Vendor-Specific Capabilities
-
-### **Dell iDRAC Servers**
-```
-✅ Service Tag: FX84LM3
-✅ Model: PowerEdge R650  
-✅ iDRAC Version: 6.10.30.00
-✅ BIOS Version: VMware ESXi
-✅ System Status: OK
-✅ iDRAC URL: https://10.35.190.178:443
-```
-
-### **Cisco Network Equipment**
-```
-✅ Model: C9407R
-✅ Serial: FXS2516Q2GW
-✅ IOS Version: CW_VERSION$17.9.6a$
-✅ Software Version: CW_IMAGE$CAT9K_IOSXE$
-✅ Hardware Version: V01
-```
-
-### **Arista Switches**
-```
-✅ Model: DCS-7050CX3-32S
-✅ Serial: HBG242504MF
-✅ EOS Version: [Detected from vendor OIDs]
-✅ Hardware Revision: 12.02
-✅ Architecture: [System architecture info]
-```
-
-### **Aruba/HP ProCurve**
-```
-✅ Model: Aruba JL357A Fixed 48G PoE+ 4SFP+ Module
-✅ System Description: 2540-48G-PoE+-4SFP+ Switch
-✅ ROM Version: YC.16.01.0003
-✅ System Object ID: 1.3.6.1.4.1.11.2.3.7.11.182.21
-```
-
-## Installation & Setup
+## Installation and Setup
 
 ### Prerequisites
-- Go 1.24.2 or later (tested on go1.24.2 windows/amd64)
-- Git
+- Go 1.24.2 or later
+- Git (for source installation)
 
 ### Quick Start
 ```bash
@@ -131,389 +140,306 @@ cd gosnmptk
 # Install dependencies
 go mod download
 
-# Run directly (development)
-go run ./cmd/snmptk
+# Run any application directly
+go run ./cmd/snmptk          # Interactive toolkit
+go run ./cmd/scanner         # Basic scanner
+go run ./cmd/scanner-ext     # Enhanced scanner
+go run ./cmd/report-generator # Report generator
 ```
 
-## Building
+## Building Applications
 
-### Windows (Native)
-```powershell
-# Quick build
-go build -o snmptk.exe ./cmd/snmptk
+### All Platforms
+The suite includes enhanced build scripts for consistent cross-platform compilation:
 
-# Or use the build script
-.\build_windows.ps1
-```
-
-### Cross-Platform Building
-
-#### Windows (Native)
-```powershell
-# Quick development build
-go build -o snmptk.exe ./cmd/snmptk
-
-# Production build with script
-.\build_windows.ps1
-```
-
-#### Linux (WSL2 or Native Linux)
 ```bash
-# Make script executable
-chmod +x build_linux.sh
+# Windows (PowerShell)
+.\build_windows.ps1 -Target all -Clean -Test
 
-# Build Linux version
-./build_linux.sh
+# Linux/WSL2
+./build_linux.sh --target all --clean --test
 
-# Cross-compile to Windows from Linux
-export CC=x86_64-w64-mingw32-gcc
-export CXX=x86_64-w64-mingw32-g++
-fyne package --target windows --src ./cmd/snmptk
+# macOS
+./build_mac.sh --target all --clean
 ```
 
-#### macOS (Native macOS Required)
+### Individual Application Builds
 ```bash
-# On actual macOS machine
-chmod +x build_mac.sh
-./build_mac.sh
-
-# Or direct build
-fyne package --target darwin --src ./cmd/snmptk
+# Build specific applications
+.\build_windows.ps1 -Target snmptk
+./build_linux.sh --target scanner-ext
+./build_mac.sh --target report
 ```
 
-**Note**: Cross-compilation to macOS from Windows/Linux is not supported due to Apple toolchain requirements. Build on actual macOS hardware for best results.
-
-### Cross-Platform Build Setup
-
-#### Windows Development
-- **Primary**: Native Windows builds using Fyne package tool
-- **File**: `build_windows.ps1`
-- **Output**: `dist/snmptk-windows.exe` (~49MB)
-
-#### Linux via WSL2
-- **Setup**: Install build-essential and gcc-mingw-w64 in WSL2
-- **File**: `build_linux.sh` 
-- **Cross-compile to Windows**: Possible with MinGW toolchain
-
-#### macOS Native
-- **Requirements**: Actual macOS machine with Xcode tools
-- **File**: `build_mac.sh`
-- **Cross-compilation**: Not supported from other platforms
+### Build Outputs
+```
+dist/
+├── snmptk-windows.exe         # Interactive toolkit
+├── snmptk-scan.exe           # Basic scanner
+├── snmptk-scan-ext.exe       # Enhanced scanner
+├── snmptk-report.exe         # Report generator
+├── snmptk-linux              # Linux binaries
+├── snmptk-scan-linux
+├── snmptk-scan-ext-linux
+├── snmptk-report-linux
+├── snmptk-mac                # macOS binaries
+├── snmptk-scan-mac
+├── snmptk-scan-ext-mac
+└── snmptk-report-mac
+```
 
 ## Usage Guide
 
-### First Time Setup
-1. **Launch the application**
-2. **Connection Tab**: Enter your device IP and SNMP credentials
-3. **Settings are automatically saved** for future sessions
-4. **Test Connection** to verify connectivity
-
-### Basic SNMP Testing
+### SNMP Tool Kit
+**Interactive device testing and fingerprinting**
 
 1. **Connection Setup**
-   - Enter target IP address and port (default: 161)
-   - Configure timeout (default: 5.0 seconds) and retries (default: 2)
-   - Select SNMP version (v2c or v3)
+   - Configure device IP and SNMP credentials
+   - Test connectivity before operations
+   - Settings automatically saved between sessions
 
-2. **SNMPv2c Configuration**
-   - Set community string (default: "public")
+2. **SNMP Operations**
+   - Execute individual SNMP commands
+   - Test common MIB-II OIDs
+   - Custom OID queries
 
-3. **SNMPv3 Configuration**
-   - Username: SNMP v3 username
-   - Auth Protocol: MD5, SHA, SHA224, SHA256, SHA384, SHA512
-   - Auth Key: Authentication password
-   - Priv Protocol: DES, AES128, AES192, AES256  
-   - Priv Key: Privacy password
+3. **Vendor Fingerprinting**
+   - Quick vendor detection for rapid identification
+   - Full fingerprinting for comprehensive device data
+   - Vendor-specific OID collection
 
-4. **Test Connection**
-   - Click "Test Connection" to verify SNMP connectivity
-   - Uses sysDescr OID (1.3.6.1.2.1.1.1.0) for validation
+### Network Scanner
+**Basic network discovery**
 
-### SNMP Operations
+1. **Network Configuration**
+   - Enter CIDR notation for target network
+   - Configure scan parameters (timeout, concurrency)
+   - Set SNMP community strings
 
-1. **Select Operation Type**
-   - **GET**: Retrieve specific OID value
-   - **GETNEXT**: Get the next OID in the MIB tree
-   - **GETBULK**: Retrieve multiple values efficiently
-   - **WALK**: Traverse MIB subtree
+2. **Scanning Process**
+   - Real-time progress monitoring
+   - Live results display
+   - Export to CSV format
 
-2. **OID Selection**
-   - Choose from predefined categories (Common MIB-II, vendor-specific)
-   - Select from dropdown of common OIDs
-   - Enter custom OID manually
+### Enhanced Network Scanner
+**Advanced scanning with persistence**
 
-3. **Execute Operations**
-   - "Execute SNMP Operation": Run selected operation
-   - "Test All Common OIDs": Bulk test of standard MIB-II OIDs
-   - "Clear Results": Reset results display
+1. **Scan Configuration**
+   - Network targeting with CIDR support
+   - Advanced SNMP authentication
+   - Fingerprinting options
 
-### Vendor Fingerprinting
+2. **Performance Settings**
+   - Dynamic timeout scaling
+   - Configurable concurrency levels
+   - Device-friendly scanning modes
 
-1. **Quick Vendor Detection**
-   - Performs basic vendor identification using standard MIB-II data
-   - Fast operation using sysDescr, sysContact, sysName analysis
-   - Provides initial vendor confidence assessment
+3. **Data Management**
+   - Automatic device persistence
+   - Database aggregation
+   - Historical scan tracking
 
-2. **Full Vendor Fingerprint (Serial)**
-   - Comprehensive vendor-specific OID collection
-   - Serial processing for maximum device compatibility
-   - Detailed hardware/software information extraction
-   - Progress tracking with real-time status updates
+4. **Analysis and Export**
+   - Real-time device discovery
+   - Aggregate device view
+   - Comprehensive export options
 
-3. **Specialized Operations**
-   - **Test All Vendors**: Compare fingerprinting across all supported vendors
-   - **Dell iDRAC Fingerprint**: Focused Dell server identification
+### Report Generator
+**Database analysis and reporting**
+
+```bash
+# Generate comprehensive reports
+./snmptk-report devices.json
+
+# Export to CSV
+./snmptk-report devices.json export.csv
+```
+
+**Report Capabilities:**
+- Device inventory analysis
+- Vendor distribution statistics
+- Network topology insights
+- Scan performance metrics
+- Subnet density analysis
 
 ## Technical Implementation
 
-### Persistent Settings
-The application automatically saves connection settings using Fyne's built-in preferences system:
-- **Windows**: Registry/AppData
-- **macOS**: ~/Library/Preferences  
-- **Linux**: ~/.config
-
-Settings saved include:
-- Connection details (IP, port, timeout, retries)
-- SNMP version and credentials
-- Protocol selections
-
-### Serial Processing Architecture
-The toolkit uses a **serial processing approach** instead of concurrent SNMP requests to ensure maximum compatibility with network devices:
+### Serial Processing for Device Safety
+The toolkit uses serial SNMP processing to ensure maximum device compatibility:
 
 ```go
-// Serial OID querying with proper delays
-for i, oidEntry := range oids {
-    c.log(fmt.Sprintf("Querying %d/%d: %s", i+1, len(oids), oidEntry.Name))
-    
-    value, err := c.snmpClient.Get(oidEntry.OID)
+// Device-friendly sequential processing
+for _, oidEntry := range prioritizedOIDs {
+    value, err := client.Get(oidEntry.OID)
     if err == nil && IsValidSNMPValue(value) {
-        fingerprintData[oidEntry.Name] = value
+        results[oidEntry.Name] = value
     }
-    
-    // Gentle delay between requests
-    time.Sleep(100 * time.Millisecond)
+    time.Sleep(100 * time.Millisecond) // Gentle delay
 }
 ```
 
-### Smart Vendor Detection
-Multi-layer detection algorithm with confidence scoring:
+### Dynamic Network Scaling
+Enhanced scanner automatically adjusts parameters based on network size:
 
 ```go
-// 1. Primary: sysDescr analysis (high confidence)
-// 2. Secondary: sysContact patterns (medium confidence)  
-// 3. Tertiary: sysName hostname analysis (low confidence)
-// 4. Validation: Vendor-specific OID confirmation
+// Intelligent timeout scaling
+switch {
+case ipCount > 32000: maxScanTime = 4 * time.Hour
+case ipCount > 16000: maxScanTime = 2 * time.Hour
+case ipCount > 8000:  maxScanTime = 1 * time.Hour
+default:              maxScanTime = 10 * time.Minute
+}
 ```
 
-### OID Prioritization System
-Vendor-specific OIDs are prioritized to query most reliable information first:
+### Device Persistence and Deduplication
+Automatic device management with intelligent merging:
 
 ```go
-type OIDEntry struct {
-    Name     string `json:"name"`
-    OID      string `json:"oid"`
-    Priority int    `json:"priority"` // 1=highest, 10=lowest
+// Smart device deduplication
+func (pb *PersistenceBridge) deduplicateDevices() {
+    // Merge devices by system name
+    // Combine IP addresses and interface data
+    // Preserve scan history and confidence scores
 }
 ```
 
 ## Configuration
 
 ### Default Settings
-```go
-// Connection defaults
-Port:    161
-Timeout: 5.0 seconds
-Retries: 2
+```yaml
+# Connection defaults
+port: 161
+timeout: 3.0
+retries: 2
+concurrency: 25
 
-// SNMPv2c defaults  
-Community: "public"
+# SNMP defaults
+communities: ["public", "private"]
+version: "SNMPv2c"
 
-// SNMPv3 defaults
-AuthProtocol: SHA
-PrivProtocol: AES128
+# Fingerprinting
+enabled: true
+type: "basic"  # or "full"
 ```
 
-### Build Requirements
+### Vendor Configuration
+The toolkit uses YAML-based vendor definitions for extensibility:
 
-#### Windows
-- Go 1.24.2+
-- Fyne tools: `go install fyne.io/tools/cmd/fyne@latest`
+```yaml
+vendors:
+  cisco:
+    display_name: "Cisco Systems"
+    device_types: ["switch", "router", "firewall"]
+    detection_patterns: ["cisco", "catalyst"]
+    fingerprint_oids:
+      - name: "Model"
+        oid: "1.3.6.1.2.1.47.1.1.1.1.13.1"
+        priority: 1
+```
 
-#### Linux/WSL2
-- Go 1.24.2+
-- build-essential: `sudo apt install build-essential`
-- MinGW (for Windows cross-compilation): `sudo apt install gcc-mingw-w64`
-- Fyne tools: `go install fyne.io/tools/cmd/fyne@latest`
+## Performance Characteristics
 
-#### macOS
-- Go 1.24.2+
-- Xcode command line tools
-- Fyne tools: `go install fyne.io/tools/cmd/fyne@latest`
+### Scanning Performance
+- **Basic Scanner**: 10-15 IPs per second (standard settings)
+- **Enhanced Scanner**: 15-20 IPs per second with optimization
+- **Memory Usage**: 50-100MB typical operation
+- **Device Impact**: Minimal due to serial processing approach
+
+### Binary Sizes
+- **Windows**: 45-50MB per application
+- **Linux**: 40-45MB per application  
+- **macOS**: 45-50MB per application
+
+### Scaling Capabilities
+- **Small Networks** (/24): Seconds to minutes
+- **Medium Networks** (/20): 10-30 minutes
+- **Large Networks** (/16): 1-4 hours with dynamic timeout scaling
 
 ## Troubleshooting
 
 ### Build Issues
-
-**Windows Cross-Compilation from WSL2**
-```bash
-# Install required tools
-sudo apt update
-sudo apt install build-essential gcc-mingw-w64
-
-# Set cross-compiler
-export CC=x86_64-w64-mingw32-gcc
-export CXX=x86_64-w64-mingw32-g++
-
-# Build
-fyne package --target windows --src ./cmd/snmptk
-```
-
-**macOS Cross-Compilation**
-- **Not supported** for GUI applications with CGO
-- Requires actual macOS hardware with Xcode tools
-- Apple restricts cross-compilation toolchains
-
-**Icon Missing Error**
-```bash
-# Create placeholder icon
-touch cmd/snmptk/Icon.png
-# Or download a proper icon file
-```
+**Cross-Platform Dependencies**
+- Ensure Fyne tools are installed: `go install fyne.io/tools/cmd/fyne@latest`
+- Linux: Install build-essential for CGO support
+- Windows: Use native PowerShell build script
+- macOS: Requires Xcode command line tools
 
 ### Runtime Issues
+**SNMP Connectivity**
+- Verify UDP port 161 accessibility
+- Check firewall settings on both client and target
+- Confirm SNMP service is enabled on target devices
+- Test with standard SNMP tools for baseline connectivity
 
-**Connection Timeouts**
-- Verify IP address and port accessibility
-- Check firewall settings (UDP 161)
-- Increase timeout value for slow devices
-- Ensure SNMP is enabled on target device
+**Performance Issues**
+- Reduce concurrency for older network equipment
+- Increase timeouts for slow-responding devices
+- Use basic fingerprinting instead of full for faster results
+- Monitor network utilization during large scans
 
-**Authentication Failures (SNMPv3)**
-- Verify username and credentials
-- Check auth/priv protocol compatibility
-- Ensure user has proper SNMP access rights
-- Confirm engine ID synchronization
-
-**Empty Fingerprint Results**
-- Verify SNMP community/credentials
-- Check if device supports vendor-specific MIBs
-- Try "Test All Common OIDs" for basic connectivity
-- Some devices may have limited MIB implementations
-
-### Debug Tips
-
-1. **Use Test Connection First**: Always verify basic SNMP connectivity
-2. **Check Common OIDs**: Test standard MIB-II before vendor-specific
-3. **Monitor Logs**: Watch real-time progress for failed OIDs
-4. **Try Different Vendors**: Some devices may respond better to different vendor OID sets
-5. **Adjust Timeouts**: Increase for slow or heavily loaded devices
-
-## Performance Characteristics
-
-### Timing Benchmarks
-- **Quick Detection**: ~100ms (basic MIB-II only)
-- **Full Fingerprinting**: 1-5 seconds (depending on vendor OID count)
-- **Serial Processing**: 100ms delay between OID requests
-- **Bulk Testing**: 30-60 seconds (all vendor fingerprints)
-
-### Binary Sizes
-- **Windows**: ~49MB (includes all dependencies)
-- **Linux**: ~45MB (typical)
-- **macOS**: ~50MB (with app bundle)
-
-### Resource Usage
-- **Memory**: ~50MB typical GUI application
-- **Network**: Minimal bandwidth (small UDP packets)
-- **CPU**: Low impact during serial processing
-- **Device Load**: Minimal impact due to serial approach
+**Data Persistence**
+- Ensure write permissions in application directory
+- Check disk space for database files
+- Verify JSON file integrity for report generation
 
 ## Development
 
 ### Contributing
 ```bash
-# Setup development environment
+# Development setup
 git clone https://github.com/scottpeterman/gosnmptk.git
 cd gosnmptk
 go mod download
 
-# Run in development mode
+# Run applications in development
 go run ./cmd/snmptk
+go run ./cmd/scanner-ext
 
-# Format code
+# Code formatting
 go fmt ./...
-
-# Test builds
-.\build_windows.ps1  # Windows
-./build_linux.sh    # Linux/WSL2
+goimports -w .
 ```
 
-### Adding New Vendors
+### Adding Vendor Support
+1. **Update YAML Configuration**
+   - Add vendor entry in `config/vendor_fingerprints.yaml`
+   - Define detection patterns and OIDs
+   - Set device type classifications
 
-1. **Add Detection Patterns**
-```go
-"newvendor": {
-    DetectionPatterns: []string{"vendor", "product", "pattern"},
-    FingerprintOIDs: []OIDEntry{
-        {"Vendor Model", "1.3.6.1.4.1.XXXX.X.X.X.X", 1},
-        // Add vendor-specific OIDs with priorities
-    },
-}
-```
-
-2. **Update Pattern Matching**
-```go
-"newvendor": {"1.3.6.1.4.1.XXXX.", "vendor", "keyword"},
-```
-
-3. **Test Thoroughly**: Verify against actual hardware
+2. **Test Implementation**
+   - Verify against actual hardware
+   - Validate OID responses
+   - Confirm device type detection
 
 ## Distribution
 
-### File Structure
-```
-dist/
-├── snmptk-windows.exe    # Windows executable (49MB)
-├── snmptk-linux          # Linux executable (~45MB)
-└── snmptk-mac            # macOS executable (~50MB)
-```
-
 ### End-User Instructions
 
-#### Windows
-1. Download `snmptk-windows.exe`
+**Windows**
+1. Download executable from releases
 2. Run directly - no installation required
-3. Windows may show security warning (click "More info" → "Run anyway")
+3. Windows Defender may require approval for first run
 
-#### macOS
-1. Download `snmptk-mac` 
-2. Make executable: `chmod +x snmptk-mac`
-3. First run: Right-click → "Open" (bypass Gatekeeper)
-4. Subsequent runs: Double-click or `./snmptk-mac`
+**Linux**
+1. Download binary and make executable: `chmod +x snmptk-*-linux`
+2. Run from terminal or file manager
+3. Dependencies included in static binary
 
-#### Linux
-1. Download `snmptk-linux`
-2. Make executable: `chmod +x snmptk-linux`
-3. Run: `./snmptk-linux`
+**macOS**
+1. Download binary and make executable: `chmod +x snmptk-*-mac`
+2. First run requires right-click and "Open" to bypass Gatekeeper
+3. Subsequent runs work normally
+
+### Integration Options
+- **CSV Export**: Standard format for integration with network management systems
+- **JSON Export**: Structured data for custom processing
+- **Command Line**: Report generator supports automation workflows
+- **Database Files**: Direct access to persistence layer for advanced integration
 
 ## License
 
 This project is released under the MIT License. See LICENSE file for details.
 
-## Acknowledgments
-
-- **Fyne Framework**: Cross-platform GUI toolkit
-- **Go SNMP Libraries**: SNMP protocol implementation
-- **Network Vendor Documentation**: OID specifications and MIB references
-- **Community Testing**: Real-world device validation
-- **MinGW Project**: Windows cross-compilation toolchain
-
-## Support
-
-For issues, feature requests, or contributions:
-- GitHub Issues: [Project Issues](https://github.com/scottpeterman/gosnmptk/issues)
-- Documentation: This README and inline code comments
-- Testing: Validate against your specific device models
-
 ---
 
-**Go SNMP Tool Kit** - Professional network device discovery and fingerprinting made simple.
+**Go SNMP Tool Kit** - Professional network discovery and device fingerprinting suite.
