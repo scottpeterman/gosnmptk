@@ -31,6 +31,60 @@ import (
 // CyberpunkTheme implements fyne.Theme with cyberpunk colors
 type CyberpunkTheme struct{}
 
+const (
+	// Network settings
+	PrefKeyNetwork     = "scanner.network"
+	PrefKeyTimeout     = "scanner.timeout"
+	PrefKeyConcurrency = "scanner.concurrency"
+
+	// SNMP settings
+	PrefKeyCommunities  = "scanner.communities"
+	PrefKeyUsername     = "scanner.username"
+	PrefKeyAuthProtocol = "scanner.auth_protocol"
+	PrefKeyAuthKey      = "scanner.auth_key"
+	PrefKeyPrivProtocol = "scanner.priv_protocol"
+	PrefKeyPrivKey      = "scanner.priv_key"
+
+	// Advanced settings
+	PrefKeyEnableFingerprint = "scanner.enable_fingerprint"
+	PrefKeyFingerprintType   = "scanner.fingerprint_type"
+	PrefKeyEnablePersist     = "scanner.enable_persist"
+	PrefKeyDBPath            = "scanner.db_path"
+)
+
+// Default settings struct
+type ScannerDefaults struct {
+	Network           string
+	Timeout           string
+	Concurrency       string
+	Communities       string
+	Username          string
+	AuthProtocol      string
+	AuthKey           string
+	PrivProtocol      string
+	PrivKey           string
+	EnableFingerprint bool
+	FingerprintType   string
+	EnablePersist     bool
+	DBPath            string
+}
+
+var scannerDefaultSettings = ScannerDefaults{
+	Network:           "10.1.0.0/24",
+	Timeout:           "3",
+	Concurrency:       "25",
+	Communities:       "public,private",
+	Username:          "",
+	AuthProtocol:      "SHA",
+	AuthKey:           "",
+	PrivProtocol:      "AES128",
+	PrivKey:           "",
+	EnableFingerprint: false,
+	FingerprintType:   "basic",
+	EnablePersist:     false,
+	DBPath:            "./scanner_devices.json",
+}
+
 // Color returns colors for the cyberpunk theme
 func (t *CyberpunkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
@@ -482,6 +536,7 @@ func (ns *NetworkScanner) scanHost(ip string) ScanResult {
 
 // ScanNetwork scans a network range with dynamic timeout based on network size
 func (ns *NetworkScanner) ScanNetwork(cidr string) error {
+
 	// Clean up any previous scan first
 	if ns.cancel != nil {
 		ns.cancel()
@@ -675,9 +730,10 @@ func (ns *NetworkScanner) GetStats() ScanStats {
 // NetworkScannerApp represents the enhanced GUI application
 
 type NetworkScannerApp struct {
-	app    fyne.App
-	window fyne.Window
-
+	app         fyne.App
+	window      fyne.Window
+	dbPathTimer *time.Timer
+	dbPathMutex sync.Mutex
 	// UI Components
 	networkEntry     *widget.Entry
 	timeoutEntry     *widget.Entry
@@ -736,9 +792,8 @@ func NewNetworkScannerApp() *NetworkScannerApp {
 	window := app.NewWindow("Go SNMP Network Scanner - Enhanced with Persistence")
 	window.Resize(fyne.NewSize(1800, 1200)) // Larger for aggregate view
 
-	// Initialize persistence (disabled by default)
-	dbPath := "./scanner_devices.json"
-	persistenceBridge := persistence.NewPersistenceBridge(dbPath, false) // Disabled by default
+	// Initialize persistence (disabled by default with empty path)
+	persistenceBridge := persistence.NewPersistenceBridge("", false) // FIXED: Empty path, disabled
 
 	return &NetworkScannerApp{
 		app:               app,
@@ -798,7 +853,7 @@ func (app *NetworkScannerApp) initializeUI() {
 	)
 	app.fingerprintTypeSelect.SetSelected("basic")
 
-	// ADD THESE: Persistence UI components
+	// Persistence UI components
 	app.enablePersistCheck = widget.NewCheck("Enable Device Persistence", app.onPersistenceToggle)
 	app.enablePersistCheck.SetChecked(false)
 
@@ -943,9 +998,63 @@ func (app *NetworkScannerApp) initializeUI() {
 	app.scanner.SetProgressCallback(app.updateProgress)
 	app.scanner.SetResultCallback(app.addResult)
 	app.scanner.SetCompleteCallback(app.scanComplete)
+
+	// NEW: Load saved settings AFTER widgets are created
+	app.loadSettings()
+
 }
 
-// createLayout creates the enhanced application layout
+// loadSettings loads all settings from preferences
+
+func (app *NetworkScannerApp) loadSettings() {
+	prefs := app.app.Preferences()
+
+	// Load network settings
+	app.networkEntry.SetText(prefs.StringWithFallback(PrefKeyNetwork, scannerDefaultSettings.Network))
+	app.timeoutEntry.SetText(prefs.StringWithFallback(PrefKeyTimeout, scannerDefaultSettings.Timeout))
+	app.concurrencyEntry.SetText(prefs.StringWithFallback(PrefKeyConcurrency, scannerDefaultSettings.Concurrency))
+
+	// Load SNMP settings
+	app.communitiesEntry.SetText(prefs.StringWithFallback(PrefKeyCommunities, scannerDefaultSettings.Communities))
+	app.usernameEntry.SetText(prefs.StringWithFallback(PrefKeyUsername, scannerDefaultSettings.Username))
+	app.authProtocolSelect.SetSelected(prefs.StringWithFallback(PrefKeyAuthProtocol, scannerDefaultSettings.AuthProtocol))
+	app.authKeyEntry.SetText(prefs.StringWithFallback(PrefKeyAuthKey, scannerDefaultSettings.AuthKey))
+	app.privProtocolSelect.SetSelected(prefs.StringWithFallback(PrefKeyPrivProtocol, scannerDefaultSettings.PrivProtocol))
+	app.privKeyEntry.SetText(prefs.StringWithFallback(PrefKeyPrivKey, scannerDefaultSettings.PrivKey))
+
+	// Load advanced settings
+	app.enableFingerprintCheck.SetChecked(prefs.BoolWithFallback(PrefKeyEnableFingerprint, scannerDefaultSettings.EnableFingerprint))
+	app.fingerprintTypeSelect.SetSelected(prefs.StringWithFallback(PrefKeyFingerprintType, scannerDefaultSettings.FingerprintType))
+	app.enablePersistCheck.SetChecked(prefs.BoolWithFallback(PrefKeyEnablePersist, scannerDefaultSettings.EnablePersist))
+	app.dbPathEntry.SetText(prefs.StringWithFallback(PrefKeyDBPath, scannerDefaultSettings.DBPath))
+
+	// Set up UI state based on persistence checkbox (but don't create database yet)
+	// app.onPersistenceToggle(app.enablePersistCheck.Checked)
+}
+
+// saveSettings saves current settings to preferences
+func (app *NetworkScannerApp) saveSettings() {
+	prefs := app.app.Preferences()
+
+	// Save network settings
+	prefs.SetString(PrefKeyNetwork, app.networkEntry.Text)
+	prefs.SetString(PrefKeyTimeout, app.timeoutEntry.Text)
+	prefs.SetString(PrefKeyConcurrency, app.concurrencyEntry.Text)
+
+	// Save SNMP settings
+	prefs.SetString(PrefKeyCommunities, app.communitiesEntry.Text)
+	prefs.SetString(PrefKeyUsername, app.usernameEntry.Text)
+	prefs.SetString(PrefKeyAuthProtocol, app.authProtocolSelect.Selected)
+	prefs.SetString(PrefKeyAuthKey, app.authKeyEntry.Text)
+	prefs.SetString(PrefKeyPrivProtocol, app.privProtocolSelect.Selected)
+	prefs.SetString(PrefKeyPrivKey, app.privKeyEntry.Text)
+
+	// Save advanced settings
+	prefs.SetBool(PrefKeyEnableFingerprint, app.enableFingerprintCheck.Checked)
+	prefs.SetString(PrefKeyFingerprintType, app.fingerprintTypeSelect.Selected)
+	prefs.SetBool(PrefKeyEnablePersist, app.enablePersistCheck.Checked)
+	prefs.SetString(PrefKeyDBPath, app.dbPathEntry.Text)
+}
 
 // createLayout creates the application layout with proper proportions
 func (app *NetworkScannerApp) createLayout() fyne.CanvasObject {
@@ -1086,6 +1195,7 @@ func (app *NetworkScannerApp) createLayout() fyne.CanvasObject {
 }
 
 // startScan starts the enhanced network scanning process
+
 func (app *NetworkScannerApp) startScan() {
 	// Validate inputs
 	network := strings.TrimSpace(app.networkEntry.Text)
@@ -1118,6 +1228,12 @@ func (app *NetworkScannerApp) startScan() {
 		for i, community := range communities {
 			communities[i] = strings.TrimSpace(community)
 		}
+	}
+
+	// NEW: Apply persistence settings now that we're starting a scan
+	if err := app.applyPersistenceSettings(); err != nil {
+		dialog.ShowError(fmt.Errorf("failed to set up persistence: %v", err), app.window)
+		return
 	}
 
 	// Configure scanner
@@ -1440,33 +1556,15 @@ func (app *NetworkScannerApp) saveResultsCSV(writer fyne.URIWriteCloser) error {
 	return nil
 }
 
-// onPersistenceToggle handles persistence enable/disable
+// onPersistenceToggle handles persistence enable/disable - FIXED to use user input
 func (app *NetworkScannerApp) onPersistenceToggle(checked bool) {
 	if checked {
-		// Enable persistence
-		dbPath := strings.TrimSpace(app.dbPathEntry.Text)
-		if dbPath == "" {
-			dbPath = "./scanner_devices.json"
-			app.dbPathEntry.SetText(dbPath)
-		}
-
-		// Close existing bridge if any
-		if app.persistenceBridge != nil {
-			app.persistenceBridge.Close()
-		}
-
-		// Create new persistence bridge
-		app.persistenceBridge = persistence.NewPersistenceBridge(dbPath, true)
-
+		// Enable UI elements but don't create database yet
 		app.dbPathEntry.Enable()
 		app.aggregateButton.Enable()
-
-		// Load existing devices for display
-		app.loadAggregateDevices()
-
-		app.statusLabel.SetText("Persistence enabled: " + dbPath)
+		app.statusLabel.SetText("Persistence will be enabled on next scan")
 	} else {
-		// Disable persistence
+		// Disable persistence immediately and close any existing bridge
 		if app.persistenceBridge != nil {
 			app.persistenceBridge.Close()
 			app.persistenceBridge = persistence.NewPersistenceBridge("", false)
@@ -1474,12 +1572,209 @@ func (app *NetworkScannerApp) onPersistenceToggle(checked bool) {
 
 		app.dbPathEntry.Disable()
 		app.aggregateButton.Disable()
-
 		app.statusLabel.SetText("Persistence disabled")
 	}
 
-	// Refresh table to show/hide persistence indicators
-	app.resultsTable.Refresh()
+	// REMOVED: app.saveSettings() - Let user save manually
+	// REMOVED: app.resultsTable.Refresh() - Not needed here
+
+	// Give user feedback about unsaved changes
+	app.statusLabel.SetText("Settings changed - use Settings > Save Settings to persist")
+}
+
+// ADD a function to check for unsaved changes (optional)
+
+func (app *NetworkScannerApp) hasUnsavedChanges() bool {
+	prefs := app.app.Preferences()
+
+	// Check if current UI values differ from saved preferences
+	return (app.networkEntry.Text != prefs.StringWithFallback(PrefKeyNetwork, scannerDefaultSettings.Network) ||
+		app.timeoutEntry.Text != prefs.StringWithFallback(PrefKeyTimeout, scannerDefaultSettings.Timeout) ||
+		app.concurrencyEntry.Text != prefs.StringWithFallback(PrefKeyConcurrency, scannerDefaultSettings.Concurrency) ||
+		app.communitiesEntry.Text != prefs.StringWithFallback(PrefKeyCommunities, scannerDefaultSettings.Communities) ||
+		app.usernameEntry.Text != prefs.StringWithFallback(PrefKeyUsername, scannerDefaultSettings.Username) ||
+		app.authProtocolSelect.Selected != prefs.StringWithFallback(PrefKeyAuthProtocol, scannerDefaultSettings.AuthProtocol) ||
+		app.authKeyEntry.Text != prefs.StringWithFallback(PrefKeyAuthKey, scannerDefaultSettings.AuthKey) ||
+		app.privProtocolSelect.Selected != prefs.StringWithFallback(PrefKeyPrivProtocol, scannerDefaultSettings.PrivProtocol) ||
+		app.privKeyEntry.Text != prefs.StringWithFallback(PrefKeyPrivKey, scannerDefaultSettings.PrivKey) ||
+		app.enableFingerprintCheck.Checked != prefs.BoolWithFallback(PrefKeyEnableFingerprint, scannerDefaultSettings.EnableFingerprint) ||
+		app.fingerprintTypeSelect.Selected != prefs.StringWithFallback(PrefKeyFingerprintType, scannerDefaultSettings.FingerprintType) ||
+		app.enablePersistCheck.Checked != prefs.BoolWithFallback(PrefKeyEnablePersist, scannerDefaultSettings.EnablePersist) ||
+		app.dbPathEntry.Text != prefs.StringWithFallback(PrefKeyDBPath, scannerDefaultSettings.DBPath))
+}
+
+func (app *NetworkScannerApp) applyPersistenceSettings() error {
+	// Only set up persistence if the checkbox is checked
+	if !app.enablePersistCheck.Checked {
+		// Make sure persistence is disabled
+		if app.persistenceBridge != nil {
+			app.persistenceBridge.Close()
+			app.persistenceBridge = persistence.NewPersistenceBridge("", false)
+		}
+		return nil
+	}
+
+	// Get the database path
+	dbPath := strings.TrimSpace(app.dbPathEntry.Text)
+	if dbPath == "" {
+		dbPath = "./scanner_devices.json"
+		app.dbPathEntry.SetText(dbPath)
+	}
+
+	// Close existing bridge if any
+	if app.persistenceBridge != nil {
+		app.persistenceBridge.Close()
+	}
+
+	// Create new persistence bridge with user-specified path
+	app.persistenceBridge = persistence.NewPersistenceBridge(dbPath, true)
+
+	// Load existing devices for display
+	app.loadAggregateDevices()
+
+	app.statusLabel.SetText("Persistence enabled: " + dbPath)
+	return nil
+}
+
+// setupMenu creates the application menu
+func (app *NetworkScannerApp) setupMenu() {
+	// Settings menu with manual save option
+	saveSettingsItem := fyne.NewMenuItem("Save Settings", func() {
+		app.saveSettings()
+		app.statusLabel.SetText("Settings saved successfully")
+	})
+
+	viewSettingsItem := fyne.NewMenuItem("View Current Settings", func() {
+		app.showSettingsInfo()
+	})
+
+	clearSettingsItem := fyne.NewMenuItem("Clear Settings", func() {
+		app.showClearSettingsDialog()
+	})
+
+	settingsMenu := fyne.NewMenu("Settings",
+		saveSettingsItem, // NEW: Manual save option
+		fyne.NewMenuItemSeparator(),
+		viewSettingsItem,
+		clearSettingsItem)
+
+	// File menu
+	exitItem := fyne.NewMenuItem("Exit", func() {
+		app.app.Quit()
+	})
+
+	fileMenu := fyne.NewMenu("File", exitItem)
+
+	// Help menu
+	aboutItem := fyne.NewMenuItem("About", func() {
+		dialog.ShowInformation("About",
+			"Go SNMP Network Scanner - Enhanced\nVersion 1.0.0\n\nCyberpunk-themed network discovery tool with persistence",
+			app.window)
+	})
+
+	helpMenu := fyne.NewMenu("Help", aboutItem)
+
+	// Create main menu
+	mainMenu := fyne.NewMainMenu(fileMenu, settingsMenu, helpMenu)
+	app.window.SetMainMenu(mainMenu)
+}
+
+// showSettingsInfo displays current settings
+func (app *NetworkScannerApp) showSettingsInfo() {
+	prefs := app.app.Preferences()
+
+	settingsInfo := fmt.Sprintf(`**Current Scanner Settings:**
+
+**Network:**
+- CIDR: %s
+- Timeout: %s
+- Max Concurrent: %s
+
+**SNMP:**
+- Communities: %s
+- Username: %s
+- Auth Protocol: %s
+- Priv Protocol: %s
+
+**Advanced:**
+- Fingerprinting: %t (%s)
+- Persistence: %t
+- Database Path: %s
+
+---
+*Note: Passwords are not displayed for security*`,
+		prefs.StringWithFallback(PrefKeyNetwork, "not set"),
+		prefs.StringWithFallback(PrefKeyTimeout, "not set"),
+		prefs.StringWithFallback(PrefKeyConcurrency, "not set"),
+		prefs.StringWithFallback(PrefKeyCommunities, "not set"),
+		prefs.StringWithFallback(PrefKeyUsername, "not set"),
+		prefs.StringWithFallback(PrefKeyAuthProtocol, "not set"),
+		prefs.StringWithFallback(PrefKeyPrivProtocol, "not set"),
+		prefs.BoolWithFallback(PrefKeyEnableFingerprint, false),
+		prefs.StringWithFallback(PrefKeyFingerprintType, "not set"),
+		prefs.BoolWithFallback(PrefKeyEnablePersist, false),
+		prefs.StringWithFallback(PrefKeyDBPath, "not set"),
+	)
+
+	content := widget.NewRichTextFromMarkdown(settingsInfo)
+	content.Wrapping = fyne.TextWrapWord
+
+	scroll := container.NewScroll(content)
+	scroll.SetMinSize(fyne.NewSize(500, 400))
+
+	dialog.NewCustom("Scanner Settings", "Close", scroll, app.window).Show()
+}
+
+// showClearSettingsDialog shows confirmation dialog for clearing settings
+func (app *NetworkScannerApp) showClearSettingsDialog() {
+	dialog.ShowConfirm(
+		"Clear Settings",
+		"Are you sure you want to clear all saved scanner settings?\n\nThis will reset all fields to defaults and cannot be undone.",
+		func(confirmed bool) {
+			if confirmed {
+				app.resetToDefaults()
+			}
+		},
+		app.window,
+	)
+}
+
+// resetToDefaults resets all settings to default values
+func (app *NetworkScannerApp) resetToDefaults() {
+	prefs := app.app.Preferences()
+
+	// Clear all preference keys
+	prefKeys := []string{
+		PrefKeyNetwork, PrefKeyTimeout, PrefKeyConcurrency,
+		PrefKeyCommunities, PrefKeyUsername, PrefKeyAuthProtocol,
+		PrefKeyAuthKey, PrefKeyPrivProtocol, PrefKeyPrivKey,
+		PrefKeyEnableFingerprint, PrefKeyFingerprintType,
+		PrefKeyEnablePersist, PrefKeyDBPath,
+	}
+
+	for _, key := range prefKeys {
+		prefs.RemoveValue(key)
+	}
+
+	// Reset all widgets to defaults
+	app.networkEntry.SetText(scannerDefaultSettings.Network)
+	app.timeoutEntry.SetText(scannerDefaultSettings.Timeout)
+	app.concurrencyEntry.SetText(scannerDefaultSettings.Concurrency)
+	app.communitiesEntry.SetText(scannerDefaultSettings.Communities)
+	app.usernameEntry.SetText(scannerDefaultSettings.Username)
+	app.authProtocolSelect.SetSelected(scannerDefaultSettings.AuthProtocol)
+	app.authKeyEntry.SetText(scannerDefaultSettings.AuthKey)
+	app.privProtocolSelect.SetSelected(scannerDefaultSettings.PrivProtocol)
+	app.privKeyEntry.SetText(scannerDefaultSettings.PrivKey)
+	app.enableFingerprintCheck.SetChecked(scannerDefaultSettings.EnableFingerprint)
+	app.fingerprintTypeSelect.SetSelected(scannerDefaultSettings.FingerprintType)
+	app.enablePersistCheck.SetChecked(scannerDefaultSettings.EnablePersist)
+	app.dbPathEntry.SetText(scannerDefaultSettings.DBPath)
+
+	// Trigger persistence toggle to reset state
+	app.onPersistenceToggle(scannerDefaultSettings.EnablePersist)
+
+	app.statusLabel.SetText("Settings reset to defaults")
 }
 
 // recordScanResultToPersistence converts and records scan result
@@ -1988,10 +2283,28 @@ func getLinuxScreenSize() (width, height float32) {
 	return 1920, 1080 // Fallback
 }
 
-// Run starts the enhanced application
+func (app *NetworkScannerApp) setupAppLifecycle() {
+	// Handle app-level quit events (Ctrl+C, etc.)
+	app.app.Lifecycle().SetOnStopped(func() {
+		// Final save before app termination
+		app.saveSettings()
+
+		// Clean shutdown of persistence
+		if app.persistenceBridge != nil {
+			app.persistenceBridge.Close()
+		}
+
+		// Cancel any running operations
+		if app.scanner != nil {
+			app.scanner.Cancel()
+		}
+	})
+}
+
 func (app *NetworkScannerApp) Run() {
 	app.initializeUI()
-
+	app.setupAppLifecycle()
+	app.setupMenu()
 	// Get actual screen dimensions
 	screenWidth, screenHeight := getScreenSize()
 
@@ -2006,7 +2319,6 @@ func (app *NetworkScannerApp) Run() {
 	app.window.SetContent(app.createLayout())
 	app.window.ShowAndRun()
 }
-
 func main() {
 	app := NewNetworkScannerApp()
 
