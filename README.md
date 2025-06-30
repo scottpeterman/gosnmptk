@@ -2,7 +2,7 @@
 
 A comprehensive SNMP testing and network discovery suite built in Go with modern GUI interfaces. This toolkit provides enterprise-grade network device discovery, SNMP operations, vendor-specific fingerprinting, and advanced network scanning capabilities with data persistence.
 
-![Screenshot](https://raw.githubusercontent.com/scottpeterman/gosnmptk/refs/heads/main/screenshots/screens2.gif)
+![Screenshot](https://raw.githubusercontent.com/scottpeterman/gosnmptk/refs/heads/main/screenshots/screens1.gif)
 
 ## Download and Installation
 
@@ -66,10 +66,10 @@ The Go SNMP Tool Kit consists of four specialized applications:
 ## Core Features
 
 ### Comprehensive Vendor Fingerprinting
-- **Supported Vendors**: Cisco, Dell (iDRAC), Arista, Aruba/HP, Fortinet, Palo Alto, APC
-- **Smart Detection**: Multi-layer vendor detection using system descriptors and vendor-specific OIDs
-- **Device Type Recognition**: Automatic classification of switches, servers, wireless controllers, and other device types
-- **Rich Data Extraction**: Model numbers, serial numbers, firmware versions, hardware revisions
+- **Supported Vendors**: Cisco Systems, Dell Technologies (iDRAC), Arista Networks, Aruba Networks (HPE), HP Printers, HP Network Interfaces, Fortinet, Palo Alto Networks, Palo Alto SD-WAN (CloudGenix/Prisma), APC (Schneider Electric), Lexmark International
+- **Smart Detection**: Multi-layer vendor detection using system descriptors, enterprise OIDs, and vendor-specific patterns
+- **Device Type Recognition**: Automatic classification of switches, routers, firewalls, servers, printers, wireless controllers, UPS systems, PDUs, and SD-WAN gateways
+- **Rich Data Extraction**: Model numbers, serial numbers, firmware versions, hardware revisions, service tags, and device-specific configurations
 
 ### SNMP Operations
 - **Protocol Support**: SNMPv2c and SNMPv3 with comprehensive authentication options
@@ -303,6 +303,67 @@ func (pb *PersistenceBridge) deduplicateDevices() {
 }
 ```
 
+## Vendor Extension System
+
+### YAML-Based Configuration
+The toolkit uses a completely user-editable YAML configuration file (`config/vendor_fingerprints.yaml`) for vendor detection. This allows adding new vendors without code changes.
+
+### Adding New Vendors
+To add support for a new vendor, edit the YAML file:
+
+```yaml
+vendors:
+  your_vendor:
+    display_name: "Your Vendor Name"
+    enterprise_oid: "1.3.6.1.4.1.XXXXX"
+    detection_patterns:
+      - "vendor_pattern"
+      - "product_name"
+    oid_patterns:
+      - "1.3.6.1.4.1.XXXXX."
+      - "specific_keyword"
+    device_types:
+      - "switch"
+      - "router"
+    exclusion_patterns:
+      - "avoid_this_pattern"  # Prevent false positives
+    fingerprint_oids:
+      - name: "Model Name"
+        oid: "1.3.6.1.4.1.XXXXX.X.X.X"
+        priority: 1
+        description: "Device model identifier"
+      - name: "Serial Number"
+        oid: "1.3.6.1.4.1.XXXXX.X.X.Y"
+        priority: 1
+        description: "Device serial number"
+```
+
+### Detection Priority
+The system uses priority-based detection to handle vendor conflicts:
+
+```yaml
+detection_rules:
+  priority_order:
+    - "specific_vendor"    # Check specific vendors first
+    - "general_vendor"     # Then general patterns
+    - "fallback_vendor"    # Finally fallback detection
+```
+
+### Key Configuration Elements
+
+**Detection Patterns**: Text patterns found in system descriptions
+**OID Patterns**: SNMP OID prefixes or keywords for vendor identification  
+**Exclusion Patterns**: Patterns that disqualify vendor detection (prevents false positives)
+**Priority Ordering**: Controls which vendor is checked first for ambiguous devices
+**Fingerprint OIDs**: Vendor-specific OIDs to query for detailed device information
+
+### Testing New Configurations
+1. Edit `config/vendor_fingerprints.yaml`
+2. Restart the application (YAML is loaded at startup)
+3. Use "Test All Vendors" to verify detection
+4. Check results for conflicts or missed detections
+5. Adjust priority order or exclusion patterns as needed
+
 ## Configuration
 
 ### Default Settings
@@ -320,21 +381,13 @@ version: "SNMPv2c"
 # Fingerprinting
 enabled: true
 type: "basic"  # or "full"
-```
 
-### Vendor Configuration
-The toolkit uses YAML-based vendor definitions for extensibility:
-
-```yaml
-vendors:
-  cisco:
-    display_name: "Cisco Systems"
-    device_types: ["switch", "router", "firewall"]
-    detection_patterns: ["cisco", "catalyst"]
-    fingerprint_oids:
-      - name: "Model"
-        oid: "1.3.6.1.2.1.47.1.1.1.1.13.1"
-        priority: 1
+# Scanning behavior
+scanning:
+  default_timeout: 30
+  oid_query_timeout: 10
+  delay_between_queries: 100
+  max_concurrent_queries: 5
 ```
 
 ## Performance Characteristics
