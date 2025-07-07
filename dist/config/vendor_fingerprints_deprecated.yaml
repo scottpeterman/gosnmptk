@@ -2,7 +2,7 @@
 version: "1.0"
 metadata:
   description: "SNMP vendor fingerprinting configuration"
-  last_updated: "2025-01-15"
+  last_updated: "2025-07-07"
   contributors: ["team", "community"]
 
 # Common OIDs used across vendors
@@ -32,44 +32,149 @@ generic_oids:
 
 # Vendor-specific configurations
 vendors:
+  # Cisco - MOVED TO TOP PRIORITY with better detection
   cisco:
     display_name: "Cisco Systems"
     enterprise_oid: "1.3.6.1.4.1.9"
     detection_patterns:
+      - "cisco ios software"
       - "cisco"
-      - "ios"
-      - "nx-os"
-      - "asa"
       - "catalyst"
       - "nexus"
+      - "asa"
+      - "c9k"
+      - "cat9k"
+      - "c94"
+      - "c93"
+      - "c92"
+      - "c91"
+      - "ios xe"
+      - "ios-xe"
+      - "nx-os"
     oid_patterns:
       - "1.3.6.1.4.1.9."
       - "cisco"
       - "ios"
       - "nx-os"
+      - "catalyst"
     device_types:
       - "switch"
       - "router"
       - "firewall"
+    # CRITICAL: Exclude SD-WAN patterns to prevent conflicts
+    exclusion_patterns:
+      - "viptela"
+      - "vedge"
+      - "ion 1000"
+      - "ion 2000"
+      - "ion 3000"
+      - "cloudgenix"
+      - "prisma sd-wan"
     fingerprint_oids:
       - name: "Cisco Software Version"
         oid: "1.3.6.1.4.1.9.9.25.1.1.1.2.2"
         priority: 1
         description: "Cisco-specific software version"
-        device_types: ["switch", "router"]
-      - name: "Cisco Platform"
-        oid: "1.3.6.1.4.1.9.3.6.11.0"
-        priority: 1
-        description: "Cisco platform identifier"
-      - name: "Cisco IOS Version"
-        oid: "1.3.6.1.4.1.9.9.25.1.1.1.2.5"
-        priority: 1
-        description: "IOS version string"
-      - name: "Cisco Model"
-        oid: "1.3.6.1.2.1.47.1.1.1.1.13.1"
-        priority: 5
-        description: "Entity MIB model (lower priority)"
 
+  # Lexmark - high priority to prevent misclassification
+  lexmark:
+    display_name: "Lexmark International"
+    enterprise_oid: "1.3.6.1.4.1.641"
+    detection_patterns:
+      - "lexmark"
+      - "mx822ade"
+      - "mx820"
+      - "cx943adxse"
+      - "cx410de"
+      - "cx820"
+      - "ms823dn"
+      - "mxtgw"
+      - "cxtpc"
+      - "cxtpp"
+      - "msngw"
+      - "nh41"
+    oid_patterns:
+      - "1.3.6.1.4.1.641."
+      - "lexmark"
+      - "mxtgw"
+      - "cxtpc"
+      - "cxtpp"
+      - "msngw"
+    device_types:
+      - "printer"
+      - "multifunction_printer"
+    fingerprint_oids:
+      - name: "Lexmark Model"
+        oid: "1.3.6.1.4.1.641.2.1.2.1.2.1"
+        priority: 1
+        description: "Lexmark printer model"
+
+  # Zebra - second priority
+  zebra:
+    display_name: "Zebra Technologies"
+    enterprise_oid: "1.3.6.1.4.1.10642"
+    detection_patterns:
+      - "zebra technologies"
+      - "zebra wired"
+      - "zebra"
+    oid_patterns:
+      - "1.3.6.1.4.1.10642."
+      - "zebra"
+    device_types:
+      - "label_printer"
+      - "printer"
+    fingerprint_oids:
+      - name: "Zebra Model"
+        oid: "1.3.6.1.4.1.10642.1.1.1.1.1.0"
+        priority: 1
+        description: "Zebra printer model"
+
+  # Rockwell Automation - third priority
+  rockwell:
+    display_name: "Rockwell Automation"
+    enterprise_oid: "1.3.6.1.4.1.1933"
+    detection_patterns:
+      - "rockwell automation"
+      - "1769-l16er"
+      - "allen-bradley"
+      - "compactlogix"
+    oid_patterns:
+      - "1.3.6.1.4.1.1933."
+      - "rockwell"
+      - "allen-bradley"
+    device_types:
+      - "plc"
+      - "industrial_controller"
+      - "automation_controller"
+    fingerprint_oids:
+      - name: "Rockwell Controller Model"
+        oid: "1.3.6.1.4.1.1933.1.1.1.1.1.0"
+        priority: 1
+        description: "Rockwell automation controller model"
+
+  # Eaton PowerXpert - fourth priority
+  eaton:
+    display_name: "Eaton Corporation"
+    enterprise_oid: "1.3.6.1.4.1.534"
+    detection_patterns:
+      - "powerxpert"
+      - "linux powerxpert"
+      - "eaton"
+    oid_patterns:
+      - "1.3.6.1.4.1.534."
+      - "powerxpert"
+      - "eaton"
+    device_types:
+      - "power_management"
+      - "ups"
+      - "pdu"
+    fingerprint_oids:
+      - name: "Eaton PowerXpert Model"
+        oid: "1.3.6.1.4.1.534.1.1.2.0"
+        priority: 1
+        description: "Eaton PowerXpert device model"
+
+  # Arista Networks
   arista:
     display_name: "Arista Networks"
     enterprise_oid: "1.3.6.1.4.1.30065"
@@ -88,123 +193,8 @@ vendors:
         oid: "1.3.6.1.4.1.30065.3.1.1.0"
         priority: 1
         description: "Arista EOS software version"
-      - name: "Arista EOS Build"
-        oid: "1.3.6.1.4.1.30065.3.1.2.0"
-        priority: 1
-        description: "Arista EOS build information"
 
-  aruba:
-    display_name: "Aruba Networks (HPE)"
-    enterprise_oid: "1.3.6.1.4.1.11"
-    detection_patterns:
-      - "aruba"
-      - "arubaos"
-      - "procurve switch"
-      - "aruba networks"
-      - "jl"
-      - "jg"
-      - "jx"
-      - "cx"
-      - "instant"
-    oid_patterns:
-      - "1.3.6.1.4.1.11.2.14.11."
-      - "1.3.6.1.4.1.47196."
-      - "1.3.6.1.4.1.14823."
-      - "aruba"
-      - "procurve switch"
-      - "arubaos"
-    device_types:
-      - "switch"
-      - "wireless_controller"
-      - "access_point"
-    fingerprint_oids:
-      - name: "HP Entity Module Description"
-        oid: "1.3.6.1.4.1.11.2.14.11.1.2.3.1.4.1"
-        priority: 1
-        description: "HP networking module description"
-        device_types: ["switch"]
-      - name: "Aruba CX Model"
-        oid: "1.3.6.1.4.1.47196.4.1.1.3.8.2.1.1.1.4.1"
-        priority: 1
-        description: "Aruba CX switch model"
-        device_types: ["switch"]
-      - name: "Aruba Wireless Model"
-        oid: "1.3.6.1.4.1.14823.2.2.1.1.1.2.0"
-        priority: 1
-        description: "Aruba wireless controller model"
-        device_types: ["wireless_controller"]
-
-  hp_network:
-    display_name: "HP Network Interfaces"
-    enterprise_oid: "1.3.6.1.4.1.11"
-    detection_patterns:
-      - "hp ethernet multi-environment"
-      - "hp ethernet"
-      - "hp jetdirect"
-      - "jetdirect"
-      - "hp network"
-      - "hewlett-packard ethernet"
-      - "hpbea"
-      - "hpjet"
-    oid_patterns:
-      - "1.3.6.1.4.1.11.2.4.3."
-      - "1.3.6.1.4.1.11.2.3.7."
-      - "jetdirect"
-      - "hp ethernet"
-    device_types:
-      - "print_server"
-      - "network_interface"
-    fingerprint_oids:
-      - name: "JetDirect Model"
-        oid: "1.3.6.1.4.1.11.2.4.3.1.1.3.1.0"
-        priority: 1
-        description: "HP JetDirect model identification"
-      - name: "JetDirect Firmware"
-        oid: "1.3.6.1.4.1.11.2.4.3.1.1.3.2.0"
-        priority: 1
-        description: "HP JetDirect firmware version"
-      - name: "Network Interface Status"
-        oid: "1.3.6.1.4.1.11.2.4.3.1.1.2.1.0"
-        priority: 2
-        description: "HP network interface status"
-
-  hp_printer:
-    display_name: "HP Printers"
-    enterprise_oid: "1.3.6.1.4.1.11"
-    detection_patterns:
-      - "laserjet"
-      - "officejet"
-      - "deskjet"
-      - "envy"
-      - "photosmart"
-      - "pagewide"
-      - "latex"
-      - "designjet"
-      - "printer"
-    oid_patterns:
-      - "1.3.6.1.4.1.11.2.3.9."
-      - "1.3.6.1.4.1.11.2.4.3."
-      - "laserjet"
-      - "officejet"
-      - "printer"
-    device_types:
-      - "printer"
-    exclusion_patterns:
-      # Don't detect as HP printer if these are present
-      - "switch"
-      - "router"
-      - "aruba"
-      - "procurve"
-    fingerprint_oids:
-      - name: "HP Printer Model"
-        oid: "1.3.6.1.4.1.11.2.3.9.4.2.1.1.3.3.0"
-        priority: 1
-        description: "HP printer model name"
-      - name: "Printer Status"
-        oid: "1.3.6.1.2.1.25.3.2.1.5.1"
-        priority: 2
-        description: "Standard printer status"
-
+  # Dell Technologies
   dell:
     display_name: "Dell Technologies"
     enterprise_oid: "1.3.6.1.4.1.674"
@@ -227,15 +217,272 @@ vendors:
         oid: "1.3.6.1.4.1.674.10892.5.1.3.2.0"
         priority: 1
         description: "Dell service tag"
-      - name: "Dell Chassis Model"
-        oid: "1.3.6.1.4.1.674.10892.5.1.3.12.0"
-        priority: 1
-        description: "Dell chassis model"
-      - name: "iDRAC Version"
-        oid: "1.3.6.1.4.1.674.10892.5.1.1.12.0"
-        priority: 1
-        description: "iDRAC firmware version"
 
+  # Aruba Networks (HPE) - FIXED
+  aruba:
+    display_name: "Aruba Networks (HPE)"
+    enterprise_oid: "1.3.6.1.4.1.11"
+    detection_patterns:
+      - "aruba"
+      - "arubaos"
+      - "procurve switch"
+      - "aruba networks"
+      - "jl"
+      - "jg"
+      - "jx"
+      - "cx"
+      - "instant"
+    oid_patterns:
+      - "1.3.6.1.4.1.11.2.14.11."
+      - "1.3.6.1.4.1.47196."
+      - "1.3.6.1.4.1.14823."
+      - "aruba"
+      - "procurve switch"
+      - "arubaos"
+    device_types:
+      - "wireless"
+      - "wireless_controller"
+      - "switch"
+    exclusion_patterns:
+      - "lexmark"
+      - "mxtgw"
+      - "cxtpc"
+      - "cxtpp"
+      - "msngw"
+      - "nh41"
+    fingerprint_oids:
+      - name: "Aruba Model"
+        oid: "1.3.6.1.4.1.14823.2.2.1.1.1.2.0"
+        priority: 1
+        description: "Aruba wireless device model"
+        device_types: ["wireless"]
+      - name: "Aruba Serial Number"
+        oid: "1.3.6.1.4.1.14823.2.2.1.1.1.1.0"
+        priority: 1
+        description: "Aruba wireless device serial"
+        device_types: ["wireless"]
+      - name: "Aruba CX Model"
+        oid: "1.3.6.1.4.1.47196.4.1.1.3.8.2.1.1.1.4.1"
+        priority: 1
+        description: "Aruba CX switch model"
+        device_types: ["switch"]
+      - name: "HP ProCurve Model"
+        oid: "1.3.6.1.4.1.11.2.14.11.5.1.1.2.0"
+        priority: 2
+        description: "HP ProCurve switch model"
+        device_types: ["switch"]
+
+  # SD-WAN vendors - MOVED AFTER REGULAR NETWORKING VENDORS with STRICTER patterns
+  palo_alto_sdwan:
+    display_name: "Palo Alto Networks (CloudGenix/Prisma SD-WAN)"
+    enterprise_oid: "1.3.6.1.4.1.25461"
+    detection_patterns:
+      # MUCH MORE SPECIFIC patterns - must contain BOTH "ion" AND version pattern
+      - "ion 1000"
+      - "ion 2000"
+      - "ion 3000"
+      - "ion 5000"
+      - "ion 7000"
+      - "ion 9000"
+      - "cloudgenix"
+      - "prisma sd-wan"
+      - "prisma sdwan"
+    oid_patterns:
+      - "1.3.6.1.4.1.25461."
+      - "cloudgenix"
+      - "prisma"
+    device_types:
+      - "sdwan"
+      - "sdwan_gateway"
+      - "edge_device"
+      - "wan_optimizer"
+    # CRITICAL: Must NOT match regular Cisco devices
+    exclusion_patterns:
+      - "catalyst"
+      - "nexus"
+      - "ios software"
+      - "c9k"
+      - "cat9k"
+      - "c94"
+      - "c93"
+      - "c92"
+      - "c91"
+    fingerprint_oids:
+      - name: "Ion Model"
+        oid: "1.3.6.1.4.1.25461.2.1.2.2.1.0"
+        priority: 1
+        description: "CloudGenix Ion model"
+
+  # Cisco SD-WAN (Viptela) - STRICTER patterns
+  cisco_sdwan:
+    display_name: "Cisco SD-WAN (Viptela)"
+    enterprise_oid: "1.3.6.1.4.1.9"
+    detection_patterns:
+      - "viptela"
+      - "cisco sd-wan"
+      - "cisco sdwan"
+      - "vedge"
+      - "vmanage"
+      - "vsmart"
+      - "vbond"
+      - "catalyst sdwan"
+    oid_patterns:
+      - "viptela"
+      - "vedge"
+    device_types:
+      - "sdwan"
+      - "sdwan_gateway"
+    # CRITICAL: Must NOT match regular Cisco devices
+    exclusion_patterns:
+      - "catalyst l3 switch"
+      - "ios software [cupertino]"
+      - "cat9k"
+      - "c9k"
+      - "nexus"
+    fingerprint_oids:
+      - name: "Viptela Model"
+        oid: "1.3.6.1.4.1.9.9.999.1.1.1.0"
+        priority: 1
+        description: "Cisco SD-WAN device model"
+
+  # VMware VeloCloud
+  velocloud:
+    display_name: "VMware VeloCloud"
+    enterprise_oid: "1.3.6.1.4.1.6876"
+    detection_patterns:
+      - "velocloud"
+      - "velo cloud"
+      - "vmware sd-wan"
+      - "vmware sdwan"
+      - "vcg"
+      - "vce"
+    oid_patterns:
+      - "velocloud"
+      - "vmware sd-wan"
+    device_types:
+      - "sdwan"
+      - "sdwan_gateway"
+    fingerprint_oids:
+      - name: "VeloCloud Model"
+        oid: "1.3.6.1.4.1.6876.4.1.1.0"
+        priority: 1
+        description: "VeloCloud edge model"
+
+  # Brother International
+  brother:
+    display_name: "Brother International"
+    enterprise_oid: "1.3.6.1.4.1.2435"
+    detection_patterns:
+      - "brother"
+      - "brother nc-"
+      - "brother nc-320h"
+      - "nc-320h"
+    oid_patterns:
+      - "1.3.6.1.4.1.2435."
+      - "brother"
+    device_types:
+      - "print_server"
+      - "network_interface"
+      - "printer"
+    fingerprint_oids:
+      - name: "Brother Model"
+        oid: "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.1.0"
+        priority: 1
+        description: "Brother network interface model"
+
+  # HP Printers - before general HP networking
+  hp_printer:
+    display_name: "HP Printers"
+    enterprise_oid: "1.3.6.1.4.1.11"
+    detection_patterns:
+      - "laserjet"
+      - "officejet"
+      - "deskjet"
+      - "envy"
+      - "photosmart"
+      - "pagewide"
+      - "latex"
+      - "designjet"
+      - "printer"
+    oid_patterns:
+      - "1.3.6.1.4.1.11.2.3.9."
+      - "1.3.6.1.4.1.11.2.4.3."
+      - "laserjet"
+      - "officejet"
+      - "printer"
+    device_types:
+      - "printer"
+    exclusion_patterns:
+      - "switch"
+      - "router"
+      - "aruba"
+      - "procurve"
+      - "lexmark"
+    fingerprint_oids:
+      - name: "HP Printer Model"
+        oid: "1.3.6.1.4.1.11.2.3.9.4.2.1.1.3.3.0"
+        priority: 1
+        description: "HP printer model name"
+
+  # HP Network Interfaces
+  hp_network:
+    display_name: "HP Network Interfaces"
+    enterprise_oid: "1.3.6.1.4.1.11"
+    detection_patterns:
+      - "hp ethernet multi-environment"
+      - "hp ethernet"
+      - "hp jetdirect"
+      - "jetdirect"
+      - "hp network"
+      - "hewlett-packard ethernet"
+      - "hpbea"
+      - "hpjet"
+      - "jd151"
+      - "jetdirect.*jd"
+    oid_patterns:
+      - "1.3.6.1.4.1.11.2.4.3."
+      - "1.3.6.1.4.1.11.2.3.7."
+      - "jetdirect"
+      - "hp ethernet"
+    device_types:
+      - "print_server"
+      - "network_interface"
+    fingerprint_oids:
+      - name: "JetDirect Model"
+        oid: "1.3.6.1.4.1.11.2.4.3.1.1.3.1.0"
+        priority: 1
+        description: "HP JetDirect model identification"
+
+  # Regular Palo Alto (after SD-WAN Palo Alto)
+  palo_alto:
+    display_name: "Palo Alto Networks"
+    enterprise_oid: "1.3.6.1.4.1.25461"
+    detection_patterns:
+      - "palo alto"
+      - "pan-os"
+      - "panorama"
+    oid_patterns:
+      - "1.3.6.1.4.1.25461."
+      - "palo alto"
+      - "pan-os"
+    device_types:
+      - "firewall"
+      - "management"
+    # Exclude SD-WAN patterns
+    exclusion_patterns:
+      - "ion 1000"
+      - "ion 2000"
+      - "ion 3000"
+      - "cloudgenix"
+      - "prisma sd-wan"
+      - "sd-wan"
+    fingerprint_oids:
+      - name: "PAN Model"
+        oid: "1.3.6.1.4.1.25461.2.1.2.1.1.0"
+        priority: 1
+        description: "Palo Alto model"
+
+  # Fortinet
   fortinet:
     display_name: "Fortinet"
     enterprise_oid: "1.3.6.1.4.1.12356"
@@ -258,35 +505,8 @@ vendors:
         oid: "1.3.6.1.4.1.12356.101.1.2.1.0"
         priority: 1
         description: "Fortinet device model"
-      - name: "Fortinet Serial Number"
-        oid: "1.3.6.1.4.1.12356.101.1.2.2.0"
-        priority: 1
-        description: "Fortinet serial number"
 
-  palo_alto:
-    display_name: "Palo Alto Networks"
-    enterprise_oid: "1.3.6.1.4.1.25461"
-    detection_patterns:
-      - "palo alto"
-      - "pan-os"
-      - "panorama"
-    oid_patterns:
-      - "1.3.6.1.4.1.25461."
-      - "palo alto"
-      - "pan-os"
-    device_types:
-      - "firewall"
-      - "management"
-    fingerprint_oids:
-      - name: "PAN Model"
-        oid: "1.3.6.1.4.1.25461.2.1.2.1.1.0"
-        priority: 1
-        description: "Palo Alto model"
-      - name: "PAN Serial Number"
-        oid: "1.3.6.1.4.1.25461.2.1.2.1.3.0"
-        priority: 1
-        description: "Palo Alto serial number"
-
+  # APC (Schneider Electric)
   apc:
     display_name: "APC (Schneider Electric)"
     enterprise_oid: "1.3.6.1.4.1.318"
@@ -305,25 +525,257 @@ vendors:
         oid: "1.3.6.1.4.1.318.1.1.1.1.1.1.0"
         priority: 1
         description: "APC UPS model"
-      - name: "APC Serial Number"
-        oid: "1.3.6.1.4.1.318.1.1.1.1.2.3.0"
+
+  # Samsung Electronics
+  samsung:
+    display_name: "Samsung Electronics"
+    enterprise_oid: "1.3.6.1.4.1.236"
+    detection_patterns:
+      - "samsung"
+      - "samsung ipolis"
+    oid_patterns:
+      - "1.3.6.1.4.1.236."
+      - "samsung"
+    device_types:
+      - "printer"
+      - "camera"
+      - "multifunction_printer"
+    fingerprint_oids:
+      - name: "Samsung Model"
+        oid: "1.3.6.1.4.1.236.11.5.1.1.1.1.0"
         priority: 1
-        description: "APC UPS serial number"
+        description: "Samsung device model"
+
+  # VMware (separate from VeloCloud)
+  vmware:
+    display_name: "VMware"
+    enterprise_oid: "1.3.6.1.4.1.6876"
+    detection_patterns:
+      - "vmware"
+      - "esxi"
+      - "vcenter"
+    oid_patterns:
+      - "1.3.6.1.4.1.6876."
+      - "vmware"
+    device_types:
+      - "server"
+      - "hypervisor"
+    # Exclude VeloCloud patterns
+    exclusion_patterns:
+      - "velocloud"
+      - "sd-wan"
+      - "sdwan"
+    fingerprint_oids:
+      - name: "VMware Product"
+        oid: "1.3.6.1.4.1.6876.1.1.0"
+        priority: 1
+        description: "VMware product name"
+
+  # BlueCat Networks
+  bluecat:
+    display_name: "BlueCat Networks"
+    enterprise_oid: "1.3.6.1.4.1.13315"
+    detection_patterns:
+      - "bluecat"
+      - "ddi server"
+    oid_patterns:
+      - "1.3.6.1.4.1.13315."
+      - "bluecat"
+    device_types:
+      - "server"
+      - "dns_server"
+    fingerprint_oids:
+      - name: "BlueCat Model"
+        oid: "1.3.6.1.4.1.13315.3.1.1.2.1.2"
+        priority: 1
+        description: "BlueCat appliance model"
+
+  # F5 Networks
+  f5:
+    display_name: "F5 Networks"
+    enterprise_oid: "1.3.6.1.4.1.3375"
+    detection_patterns:
+      - "f5 networks"
+      - "big-ip"
+    oid_patterns:
+      - "1.3.6.1.4.1.3375."
+      - "f5"
+    device_types:
+      - "load_balancer"
+      - "firewall"
+    fingerprint_oids:
+      - name: "F5 Product Name"
+        oid: "1.3.6.1.4.1.3375.2.1.4.1.0"
+        priority: 1
+        description: "F5 product name"
+
+  # Check Point Software
+  checkpoint:
+    display_name: "Check Point Software"
+    enterprise_oid: "1.3.6.1.4.1.2620"
+    detection_patterns:
+      - "check point"
+      - "checkpoint"
+    oid_patterns:
+      - "1.3.6.1.4.1.2620."
+      - "checkpoint"
+    device_types:
+      - "firewall"
+      - "security_gateway"
+    fingerprint_oids:
+      - name: "CheckPoint Product"
+        oid: "1.3.6.1.4.1.2620.1.1.21.0"
+        priority: 1
+        description: "Check Point product name"
+
+  # Xerox Corporation
+  xerox:
+    display_name: "Xerox Corporation"
+    enterprise_oid: "1.3.6.1.4.1.253"
+    detection_patterns:
+      - "xerox"
+      - "xerox.*printer"
+      - "xerox.*color"
+    oid_patterns:
+      - "1.3.6.1.4.1.253."
+      - "xerox"
+    device_types:
+      - "printer"
+      - "multifunction_printer"
+    fingerprint_oids:
+      - name: "Xerox Model"
+        oid: "1.3.6.1.4.1.253.8.53.3.2.1.3.1"
+        priority: 1
+        description: "Xerox printer model"
+
+  # Juniper Networks - MOVED TO END with stricter patterns
+  juniper:
+    display_name: "Juniper Networks"
+    enterprise_oid: "1.3.6.1.4.1.2636"
+    detection_patterns:
+      - "juniper networks"
+      - "junos"
+      - "srx series"
+      - "mx series"
+      - "ex series"
+      - "qfx series"
+    oid_patterns:
+      - "1.3.6.1.4.1.2636."
+      - "juniper networks"
+      - "junos"
+    device_types:
+      - "router"
+      - "switch"
+      - "firewall"
+    # CRITICAL: Exclude other vendors to prevent false positives
+    exclusion_patterns:
+      - "cisco"
+      - "apc"
+      - "dell"
+      - "aruba"
+      - "hp"
+      - "lexmark"
+      - "brother"
+    fingerprint_oids:
+      - name: "Juniper Product Name"
+        oid: "1.3.6.1.4.1.2636.3.1.2.0"
+        priority: 1
+        description: "Juniper product name"
+
+  # Generic SD-WAN catch-all - VERY STRICT now
+  generic_sdwan:
+    display_name: "Generic SD-WAN"
+    enterprise_oid: "1.3.6.1.4.1.8072"
+    detection_patterns:
+      - "sd-wan appliance"
+      - "sdwan appliance"
+      - "wan optimization appliance"
+      - "branch gateway appliance"
+      - "edge gateway appliance"
+    oid_patterns:
+      - "sd-wan appliance"
+      - "sdwan appliance"
+    device_types:
+      - "sdwan"
+    # CRITICAL: Must NOT match regular network devices
+    exclusion_patterns:
+      - "cisco"
+      - "catalyst"
+      - "nexus"
+      - "switch"
+      - "router"
+      - "firewall"
+    fingerprint_oids:
+      - name: "Generic SD-WAN Device"
+        oid: "1.3.6.1.2.1.1.1.0"
+        priority: 2
+        description: "Generic system description"
+
+  # Linux Embedded Device - fallback
+  linux_embedded:
+    display_name: "Linux Embedded Device"
+    enterprise_oid: "1.3.6.1.4.1.8072"
+    detection_patterns:
+      - "linux"
+      - "embedded linux"
+      - "busybox"
+    oid_patterns:
+      - "1.3.6.1.4.1.8072.3.2.10"
+      - "net-snmp"
+    device_types:
+      - "embedded_device"
+      - "server"
+    exclusion_patterns:
+      # Don't match if more specific vendors are detected
+      - "zebra"
+      - "brother"
+      - "rockwell"
+      - "powerxpert"
+      - "jetdirect"
+      - "cisco"
+      - "catalyst"
+      - "nexus"
+    fingerprint_oids:
+      - name: "Linux Kernel Version"
+        oid: "1.3.6.1.4.1.2021.100.4.0"
+        priority: 2
+        description: "Linux kernel version"
 
 # Detection rules and priorities
 detection_rules:
-  # Order matters - first match wins for ambiguous cases
   priority_order:
-    - "hp_printer"  # Check printers before general HP networking
-    - "hp_network"
-    - "cisco"
+    # CRITICAL: Regular networking vendors FIRST to prevent misclassification
+    - "cisco"               # ✅ MOVED TO TOP - will catch your C9407R correctly
     - "arista"
-    - "palo_alto"
-    - "fortinet"
     - "dell"
-    - "aruba"      # After hp_printer to avoid conflicts
+    - "aruba"
+    - "fortinet"
+    # Specific vendors
+    - "lexmark"
+    - "zebra"
+    - "rockwell"
+    - "eaton"
+    - "brother"
+    - "hp_printer"
+    - "hp_network"
+    # SD-WAN vendors AFTER regular networking - with stricter patterns
+    - "palo_alto_sdwan"     # Now has strict exclusion patterns
+    - "cisco_sdwan"         # Now has strict exclusion patterns
+    - "velocloud"
+    - "generic_sdwan"       # Very strict now
+    # Other vendors
+    - "palo_alto"           # Regular Palo Alto after SD-WAN
     - "apc"
-  
+    - "samsung"
+    - "vmware"              # Regular VMware after VeloCloud
+    - "bluecat"
+    - "f5"
+    - "checkpoint"
+    - "xerox"
+    - "juniper"             # ✅ MOVED TO END - more restrictive detection
+    # Fallback
+    - "linux_embedded"
+
   confidence_levels:
     high: "Multiple vendor-specific OIDs successful"
     medium: "Basic detection + some vendor OIDs"
@@ -332,9 +784,9 @@ detection_rules:
 
 # Configuration for scanning behavior
 scanning:
-  default_timeout: 30  # seconds
-  oid_query_timeout: 10  # seconds per OID
-  delay_between_queries: 100  # milliseconds
+  default_timeout: 30
+  oid_query_timeout: 10
+  delay_between_queries: 100
   max_concurrent_queries: 5
   retry_failed_oids: true
   retry_count: 2
