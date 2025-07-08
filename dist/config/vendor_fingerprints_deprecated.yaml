@@ -218,15 +218,22 @@ vendors:
         priority: 1
         description: "Dell service tag"
 
-  # Aruba Networks (HPE) - FIXED
+  # Aruba Networks (HPE) - ENHANCED for ProCurve detection
   aruba:
     display_name: "Aruba Networks (HPE)"
     enterprise_oid: "1.3.6.1.4.1.11"
     detection_patterns:
+      - "procurve"           # ✅ This should catch your switch
+      - "formerly procurve"  # ✅ Specific to your device
+      - "hp j9773a"          # ✅ Your exact model
+      - "2530-24g-poep"      # ✅ Your exact switch model
       - "aruba"
       - "arubaos"
       - "procurve switch"
       - "aruba networks"
+      - "j97"                # HP switch model pattern
+      - "j96"                # HP switch model pattern
+      - "j95"                # HP switch model pattern
       - "jl"
       - "jg"
       - "jx"
@@ -237,12 +244,13 @@ vendors:
       - "1.3.6.1.4.1.47196."
       - "1.3.6.1.4.1.14823."
       - "aruba"
-      - "procurve switch"
-      - "arubaos"
+      - "procurve"
+      - "formerly procurve"
+      - "hp j9"
     device_types:
+      - "switch"            # ✅ PRIMARY - moved to first
       - "wireless"
       - "wireless_controller"
-      - "switch"
     exclusion_patterns:
       - "lexmark"
       - "mxtgw"
@@ -250,53 +258,60 @@ vendors:
       - "cxtpp"
       - "msngw"
       - "nh41"
+      - "printer"           # ✅ Exclude printers
+      - "jetdirect"         # ✅ Exclude print servers
     fingerprint_oids:
-      - name: "Aruba Model"
-        oid: "1.3.6.1.4.1.14823.2.2.1.1.1.2.0"
+      - name: "HP ProCurve Model"
+        oid: "1.3.6.1.4.1.11.2.14.11.5.1.1.2.0"
         priority: 1
-        description: "Aruba wireless device model"
-        device_types: ["wireless"]
-      - name: "Aruba Serial Number"
-        oid: "1.3.6.1.4.1.14823.2.2.1.1.1.1.0"
-        priority: 1
-        description: "Aruba wireless device serial"
-        device_types: ["wireless"]
+        description: "HP ProCurve switch model"
+        device_types: ["switch"]
       - name: "Aruba CX Model"
         oid: "1.3.6.1.4.1.47196.4.1.1.3.8.2.1.1.1.4.1"
         priority: 1
         description: "Aruba CX switch model"
         device_types: ["switch"]
-      - name: "HP ProCurve Model"
-        oid: "1.3.6.1.4.1.11.2.14.11.5.1.1.2.0"
+      - name: "Aruba Model"
+        oid: "1.3.6.1.4.1.14823.2.2.1.1.1.2.0"
         priority: 2
-        description: "HP ProCurve switch model"
-        device_types: ["switch"]
+        description: "Aruba wireless device model"
+        device_types: ["wireless"]
+      - name: "Aruba Serial Number"
+        oid: "1.3.6.1.4.1.14823.2.2.1.1.1.1.0"
+        priority: 2
+        description: "Aruba wireless device serial"
+        device_types: ["wireless"]
 
-  # SD-WAN vendors - MOVED AFTER REGULAR NETWORKING VENDORS with STRICTER patterns
+  # SD-WAN vendors - MOVED AFTER REGULAR NETWORKING VENDORS with MUCH STRICTER patterns
   palo_alto_sdwan:
     display_name: "Palo Alto Networks (CloudGenix/Prisma SD-WAN)"
-    enterprise_oid: "1.3.6.1.4.1.25461"
+    enterprise_oid: "1.3.6.1.4.1.50114"  # ✅ Real CloudGenix enterprise OID
     detection_patterns:
-      # MUCH MORE SPECIFIC patterns - must contain BOTH "ion" AND version pattern
-      - "ion 1000"
-      - "ion 2000"
-      - "ion 3000"
-      - "ion 5000"
-      - "ion 7000"
-      - "ion 9000"
+      # EXTREMELY SPECIFIC patterns - must contain BOTH "ion" AND version pattern
+      - "ion 1000 ("
+      - "ion 2000 ("
+      - "ion 3000 ("
+      - "ion 5000 ("
+      - "ion 7000 ("
+      - "ion 9000 ("
+      - "cloudgenix ion"
+      - "prisma sd-wan ion"
+      - "prisma sdwan ion"
+      - "cgxtunnel"         # ✅ Real CloudGenix module name you found
       - "cloudgenix"
-      - "prisma sd-wan"
-      - "prisma sdwan"
     oid_patterns:
-      - "1.3.6.1.4.1.25461."
+      - "1.3.6.1.4.1.50114."      # ✅ Real CloudGenix enterprise OID
+      - "1.3.6.1.4.1.50114.10."   # ✅ CloudGenix-specific OID branch from sysOR
+      - "1.3.6.1.4.1.50114.10.2.10"  # ✅ EXACT CloudGenix sysOR OID!
       - "cloudgenix"
-      - "prisma"
+      - "cgxtunnel"                # ✅ Real CloudGenix identifier
+      - "prisma sd-wan"
     device_types:
       - "sdwan"
       - "sdwan_gateway"
       - "edge_device"
       - "wan_optimizer"
-    # CRITICAL: Must NOT match regular Cisco devices
+    # CRITICAL: Must NOT match ANY regular network devices
     exclusion_patterns:
       - "catalyst"
       - "nexus"
@@ -307,11 +322,27 @@ vendors:
       - "c93"
       - "c92"
       - "c91"
+      - "procurve"          # ✅ Exclude ProCurve switches
+      - "formerly procurve" # ✅ Exclude your specific switch
+      - "hp j9"             # ✅ Exclude HP switches
+      - "2530-24g"          # ✅ Exclude your switch model
+      - "switch"            # ✅ Generic switch exclusion
+      - "router"            # ✅ Generic router exclusion
+      - "printer"           # ✅ Generic printer exclusion
+      - "ups"               # ✅ Generic UPS exclusion
     fingerprint_oids:
-      - name: "Ion Model"
-        oid: "1.3.6.1.4.1.25461.2.1.2.2.1.0"
+      - name: "CloudGenix sysOR Table Search"
+        oid: "1.3.6.1.2.1.1.9.1.2"  # ✅ Walk sysOR table, look for 50114 in results
         priority: 1
-        description: "CloudGenix Ion model"
+        description: "Search sysOR table for CloudGenix enterprise OID 1.3.6.1.4.1.50114"
+      - name: "CloudGenix Enterprise Branch"
+        oid: "1.3.6.1.4.1.50114.10.2.10"  # ✅ Direct check of CloudGenix OID
+        priority: 1
+        description: "Direct check of CloudGenix enterprise branch"
+      - name: "Ion System Description"
+        oid: "1.3.6.1.2.1.1.1.0"
+        priority: 2
+        description: "Ion system description - should contain 'ion' pattern"
 
   # Cisco SD-WAN (Viptela) - STRICTER patterns
   cisco_sdwan:
@@ -746,9 +777,9 @@ detection_rules:
   priority_order:
     # CRITICAL: Regular networking vendors FIRST to prevent misclassification
     - "cisco"               # ✅ MOVED TO TOP - will catch your C9407R correctly
+    - "aruba"               # ✅ MOVED UP - will catch ProCurve switches
     - "arista"
     - "dell"
-    - "aruba"
     - "fortinet"
     # Specific vendors
     - "lexmark"
