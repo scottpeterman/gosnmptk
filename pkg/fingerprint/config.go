@@ -71,8 +71,10 @@ func NewConfigManager(configPath string) *ConfigManager {
 	}
 }
 
-// LoadConfig loads the YAML configuration from file
+// Add this debug version to your LoadConfig method in config.go
 func (cm *ConfigManager) LoadConfig() error {
+	fmt.Printf("=== DEBUG LoadConfig ===\n")
+
 	// Try multiple possible config locations
 	possiblePaths := []string{
 		cm.configPath,
@@ -86,32 +88,57 @@ func (cm *ConfigManager) LoadConfig() error {
 	var err error
 	var usedPath string
 
+	fmt.Printf("Trying to load config from these paths:\n")
 	for _, path := range possiblePaths {
 		if path == "" {
 			continue
 		}
 
+		fmt.Printf("  Trying: %s\n", path)
 		configData, err = ioutil.ReadFile(path)
 		if err == nil {
 			usedPath = path
+			fmt.Printf("  SUCCESS: Loaded from %s\n", path)
 			break
+		} else {
+			fmt.Printf("  FAILED: %v\n", err)
 		}
 	}
 
 	if err != nil {
+		fmt.Printf("ERROR: Failed to read config file from any location: %v\n", err)
 		return fmt.Errorf("failed to read config file from any location: %w", err)
 	}
 
+	fmt.Printf("Config file size: %d bytes\n", len(configData))
+	fmt.Printf("First 200 chars: %s\n", string(configData[:min(200, len(configData))]))
+
 	var config YAMLConfig
 	if err := yaml.Unmarshal(configData, &config); err != nil {
+		fmt.Printf("ERROR: Failed to parse YAML config: %v\n", err)
 		return fmt.Errorf("failed to parse YAML config: %w", err)
 	}
+
+	fmt.Printf("Parsed config successfully!\n")
+	fmt.Printf("Version: %s\n", config.Version)
+	fmt.Printf("Number of vendors: %d\n", len(config.Vendors))
+	fmt.Printf("Priority order length: %d\n", len(config.DetectionRules.PriorityOrder))
+	fmt.Printf("Priority order: %v\n", config.DetectionRules.PriorityOrder)
 
 	cm.config = &config
 	cm.configPath = usedPath
 	cm.lastLoaded = time.Now()
 
+	fmt.Printf("Config loaded successfully from: %s\n", usedPath)
+	fmt.Printf("========================\n")
 	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetConfig returns the loaded configuration
@@ -142,6 +169,14 @@ func (cm *ConfigManager) ConvertToLegacyFormat() error {
 	if cm.config == nil {
 		return fmt.Errorf("no configuration loaded")
 	}
+	// ADD THIS DEBUG
+	fmt.Printf("=== DEBUG ConvertToLegacyFormat ===\n")
+	fmt.Printf("YAML Priority Order: %v\n", cm.config.DetectionRules.PriorityOrder)
+	fmt.Printf("YAML Priority Order Length: %d\n", len(cm.config.DetectionRules.PriorityOrder))
+	if len(cm.config.DetectionRules.PriorityOrder) > 0 {
+		fmt.Printf("First 3 from YAML: %v\n", cm.config.DetectionRules.PriorityOrder[:3])
+	}
+	fmt.Printf("================================\n")
 
 	// Clear existing legacy data
 	VendorFingerprints = make(map[string]VendorFingerprint)
@@ -245,49 +280,106 @@ func (cm *ConfigManager) GetVendorOIDsForDeviceType(vendor string, deviceType st
 	return filteredOIDs
 }
 
-// DetectVendorFromConfig uses YAML config for vendor detection
+// DetectVendorFromConfig uses YAML config for vendor detection with proper priority
 func (cm *ConfigManager) DetectVendorFromConfig(sysDescr, sysContact, sysName, sysLocation string) (vendor, confidence, method string) {
 	if cm.config == nil {
 		return DetectVendorComprehensive(sysDescr, sysContact, sysName, sysLocation) // Fallback
 	}
 
-	// Use priority order from config
-	for _, vendorKey := range cm.config.DetectionRules.PriorityOrder {
-		vendorConfig, exists := cm.config.Vendors[vendorKey]
-		if !exists {
+	// DEBUG: Add logging to see what's happening
+	fmt.Printf("=== DEBUG DetectVendorFromConfig ===\n")
+	fmt.Printf("sysDescr: %s\n", sysDescr)
+	fmt.Printf("Priority order: %v\n", cm.config.DetectionRules.PriorityOrder)
+
+	// Check each field in order of reliability: sysDescr > sysContact > sysName > sysLocation
+	testFields := []struct {
+		name  string
+		value string
+		conf  string
+	}{
+		{"sysDescr", sysDescr, "high"},
+		{"sysContact", sysContact, "medium"},
+		{"sysName", sysName, "low"},
+		{"sysLocation", sysLocation, "low"},
+	}
+
+	for _, field := range testFields {
+		if field.value == "" {
 			continue
 		}
 
-		// Check sysDescr first
-		if sysDescr != "" {
-			if cm.matchesPatterns(sysDescr, vendorConfig.DetectionPatterns, vendorConfig.ExclusionPatterns) {
-				return vendorKey, "high", "sysDescr"
+		fmt.Printf("\nTesting field %s: %s\n", field.name, field.value)
+
+		// Use priority order from config with proper priority tracking
+		var bestMatch string
+		var bestPriority int = len(cm.config.DetectionRules.PriorityOrder) + 1
+
+		for priority, vendorKey := range cm.config.DetectionRules.PriorityOrder {
+			vendorConfig, exists := cm.config.Vendors[vendorKey]
+			if !exists {
+				continue
+			}
+
+			// Check if this vendor matches detection patterns
+			matched := cm.matchesDetectionPatterns(field.value, vendorConfig.DetectionPatterns)
+			if !matched {
+				fmt.Printf("  %s (priority %d): NO MATCH\n", vendorKey, priority)
+				continue
+			}
+
+			fmt.Printf("  %s (priority %d): MATCHED\n", vendorKey, priority)
+
+			// Check exclusion patterns
+			excluded := cm.matchesExclusionPatterns(field.value, vendorConfig.ExclusionPatterns)
+			if excluded {
+				fmt.Printf("    -> EXCLUDED\n")
+				continue
+			}
+
+			fmt.Printf("    -> NOT EXCLUDED\n")
+
+			// Update best match if higher priority
+			if priority < bestPriority {
+				fmt.Printf("    -> NEW BEST MATCH (priority %d)\n", priority)
+				bestMatch = vendorKey
+				bestPriority = priority
+			} else {
+				fmt.Printf("    -> Lower priority than current best\n")
 			}
 		}
 
-		// Check sysContact
-		if sysContact != "" {
-			if cm.matchesPatterns(sysContact, vendorConfig.DetectionPatterns, vendorConfig.ExclusionPatterns) {
-				return vendorKey, "medium", "sysContact"
-			}
-		}
-
-		// Check sysName
-		if sysName != "" {
-			if cm.matchesPatterns(sysName, vendorConfig.DetectionPatterns, vendorConfig.ExclusionPatterns) {
-				return vendorKey, "low", "sysName"
-			}
-		}
-
-		// Check sysLocation
-		if sysLocation != "" {
-			if cm.matchesPatterns(sysLocation, vendorConfig.DetectionPatterns, vendorConfig.ExclusionPatterns) {
-				return vendorKey, "low", "sysLocation"
-			}
+		if bestMatch != "" {
+			fmt.Printf("Final result for %s: %s\n", field.name, bestMatch)
+			fmt.Printf("=====================================\n")
+			return bestMatch, field.conf, field.name
 		}
 	}
 
+	fmt.Printf("No vendor detected\n")
+	fmt.Printf("=====================================\n")
 	return "unknown", "none", "no_detection"
+}
+
+// Helper function to check detection patterns
+func (cm *ConfigManager) matchesDetectionPatterns(text string, patterns []string) bool {
+	textLower := strings.ToLower(text)
+	for _, pattern := range patterns {
+		if strings.Contains(textLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper function to check exclusion patterns
+func (cm *ConfigManager) matchesExclusionPatterns(text string, patterns []string) bool {
+	textLower := strings.ToLower(text)
+	for _, pattern := range patterns {
+		if strings.Contains(textLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchesPatterns checks if text matches detection patterns but not exclusion patterns

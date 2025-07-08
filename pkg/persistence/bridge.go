@@ -237,17 +237,42 @@ func (pb *PersistenceBridge) generateSessionID() string {
 }
 
 func (pb *PersistenceBridge) generateDeviceID(fingerprint DeviceFingerprint) string {
-	// Simple device ID generation for now - we'll enhance this with the deduplicator
-	if fingerprint.SerialNumber != "" {
-		return fmt.Sprintf("serial_%s", strings.ToLower(fingerprint.SerialNumber))
+	// First, try to get a meaningful hostname
+	hostname := fingerprint.Hostname
+	if hostname == "" || hostname == fingerprint.IPAddress {
+		hostname = fingerprint.SysName
 	}
 
-	if fingerprint.SysObjectID != "" {
-		hash := md5.Sum([]byte(fingerprint.IPAddress + fingerprint.SysObjectID))
-		return fmt.Sprintf("composite_%x", hash[:8])
+	// Only use hostname for devices with UNIQUE, descriptive hostnames
+	if hostname != "" && hostname != fingerprint.IPAddress {
+		// Check for generic hostnames that shouldn't be used for consolidation
+		genericHostnames := map[string]bool{
+			"zt231":     true,
+			"zt610":     true,
+			"zt411":     true,
+			"zd410":     true,
+			"zd420":     true,
+			"printer":   true,
+			"ups":       true,
+			"switch":    true,
+			"router":    true,
+			"device":    true,
+			"unknown":   true,
+			"localhost": true,
+			"default":   true,
+		}
+
+		cleanHostname := strings.ToLower(strings.TrimSpace(hostname))
+
+		// Don't use generic hostnames OR very short hostnames (likely generic)
+		if !genericHostnames[cleanHostname] && len(cleanHostname) > 4 {
+			// Use hostname for devices with unique, descriptive hostnames
+			return fmt.Sprintf("host_%s", strings.ReplaceAll(cleanHostname, ".", "_"))
+		}
 	}
 
-	return fmt.Sprintf("ip_%s", fingerprint.IPAddress)
+	// For everything else, use IP-based ID (this will be the majority of devices)
+	return fmt.Sprintf("ip_%s", strings.ReplaceAll(fingerprint.IPAddress, ".", "_"))
 }
 
 func (pb *PersistenceBridge) processFingerprint(fingerprint DeviceFingerprint, sessionID string) {

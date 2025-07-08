@@ -49,7 +49,8 @@ func init() {
 }
 
 // DetectVendorFromSysDescr detects vendor based on system description
-// Uses YAML-loaded detection patterns
+// Uses YAML-loaded detection patterns with proper priority enforcement
+// Add this debug code to DetectVendorFromSysDescr function
 func DetectVendorFromSysDescr(sysDescr string) string {
 	if sysDescr == "" {
 		return "unknown"
@@ -57,38 +58,91 @@ func DetectVendorFromSysDescr(sysDescr string) string {
 
 	sysDescrLower := strings.ToLower(sysDescr)
 
+	// DEBUG: Log what we're analyzing
+	fmt.Printf("=== DEBUG DetectVendorFromSysDescr ===\n")
+	fmt.Printf("Input sysDescr: %s\n", sysDescr)
+	fmt.Printf("Lower case: %s\n", sysDescrLower)
+
 	// Use priority order from config if available
 	if GlobalConfigManager != nil && GlobalConfigManager.GetConfig() != nil {
 		config := GlobalConfigManager.GetConfig()
-		for _, vendorKey := range config.DetectionRules.PriorityOrder {
-			if vendorConfig, exists := VendorFingerprints[vendorKey]; exists {
-				for _, pattern := range vendorConfig.DetectionPatterns {
-					if strings.Contains(sysDescrLower, strings.ToLower(pattern)) {
-						// Check for exclusions if this is a YAML-loaded vendor
-						if yamlVendor, yamlExists := config.Vendors[vendorKey]; yamlExists {
-							// Check exclusion patterns
-							excluded := false
-							for _, exclusion := range yamlVendor.ExclusionPatterns {
-								if strings.Contains(sysDescrLower, strings.ToLower(exclusion)) {
-									excluded = true
-									break
-								}
-							}
-							if !excluded {
-								return vendorKey
-							}
-						} else {
-							return vendorKey
-						}
+
+		fmt.Printf("Using YAML config with %d vendors in priority order\n", len(config.DetectionRules.PriorityOrder))
+
+		var bestMatch string
+		var bestPriority int = len(config.DetectionRules.PriorityOrder) + 1
+
+		for priority, vendorKey := range config.DetectionRules.PriorityOrder {
+			vendorConfig, exists := VendorFingerprints[vendorKey]
+			if !exists {
+				continue
+			}
+
+			// Check if this vendor matches
+			matched := false
+			matchedPattern := ""
+			for _, pattern := range vendorConfig.DetectionPatterns {
+				if strings.Contains(sysDescrLower, strings.ToLower(pattern)) {
+					matched = true
+					matchedPattern = pattern
+					break
+				}
+			}
+
+			if !matched {
+				fmt.Printf("  %s (priority %d): NO MATCH\n", vendorKey, priority)
+				continue
+			}
+
+			fmt.Printf("  %s (priority %d): MATCHED pattern '%s'\n", vendorKey, priority, matchedPattern)
+
+			// Check exclusion patterns
+			if yamlVendor, yamlExists := config.Vendors[vendorKey]; yamlExists {
+				excluded := false
+				excludedBy := ""
+				for _, exclusion := range yamlVendor.ExclusionPatterns {
+					if strings.Contains(sysDescrLower, strings.ToLower(exclusion)) {
+						excluded = true
+						excludedBy = exclusion
+						break
 					}
+				}
+
+				if excluded {
+					fmt.Printf("    -> EXCLUDED by pattern '%s'\n", excludedBy)
+				} else {
+					fmt.Printf("    -> NOT EXCLUDED, checking priority\n")
+					if priority < bestPriority {
+						fmt.Printf("    -> NEW BEST MATCH (priority %d < %d)\n", priority, bestPriority)
+						bestMatch = vendorKey
+						bestPriority = priority
+					} else {
+						fmt.Printf("    -> Lower priority than current best (%d >= %d)\n", priority, bestPriority)
+					}
+				}
+			} else {
+				// Legacy vendor - take it if higher priority
+				if priority < bestPriority {
+					fmt.Printf("    -> Legacy vendor, NEW BEST MATCH\n")
+					bestMatch = vendorKey
+					bestPriority = priority
 				}
 			}
 		}
+
+		fmt.Printf("Final result: %s\n", bestMatch)
+		fmt.Printf("=====================================\n")
+
+		if bestMatch != "" {
+			return bestMatch
+		}
 	} else {
+		fmt.Printf("No YAML config available, using fallback\n")
 		// Fallback to basic pattern matching if no YAML config
 		for vendor, config := range VendorFingerprints {
 			for _, pattern := range config.DetectionPatterns {
 				if strings.Contains(sysDescrLower, strings.ToLower(pattern)) {
+					fmt.Printf("Fallback matched: %s with pattern %s\n", vendor, pattern)
 					return vendor
 				}
 			}
@@ -154,7 +208,7 @@ func DetectVendorFromOIDData(fingerprintData map[string]string) string {
 	return detectedVendor
 }
 
-// Add this to detector.go at the end of the file
+// GetConfiguredVendors returns list of vendors from config
 func GetConfiguredVendors() []string {
 	if GlobalConfigManager != nil && GlobalConfigManager.GetConfig() != nil {
 		vendors := make([]string, 0, len(GlobalConfigManager.GetConfig().Vendors))
@@ -173,6 +227,7 @@ func GetConfiguredVendors() []string {
 }
 
 // DetectVendorFromContact detects vendor based on system contact
+// Now uses priority-based detection like DetectVendorFromSysDescr
 func DetectVendorFromContact(sysContact string) string {
 	if sysContact == "" {
 		return "unknown"
@@ -180,11 +235,64 @@ func DetectVendorFromContact(sysContact string) string {
 
 	contactLower := strings.ToLower(sysContact)
 
-	// Fallback to pattern matching
-	for vendor, patterns := range VendorSpecificOIDPatterns {
-		for _, pattern := range patterns {
-			if strings.Contains(contactLower, strings.ToLower(pattern)) {
-				return vendor
+	// Use priority order from config if available
+	if GlobalConfigManager != nil && GlobalConfigManager.GetConfig() != nil {
+		config := GlobalConfigManager.GetConfig()
+
+		var bestMatch string
+		var bestPriority int = len(config.DetectionRules.PriorityOrder) + 1
+
+		for priority, vendorKey := range config.DetectionRules.PriorityOrder {
+			vendorConfig, exists := VendorFingerprints[vendorKey]
+			if !exists {
+				continue
+			}
+
+			// Check if this vendor matches
+			matched := false
+			for _, pattern := range vendorConfig.DetectionPatterns {
+				if strings.Contains(contactLower, strings.ToLower(pattern)) {
+					matched = true
+					break
+				}
+			}
+
+			if !matched {
+				continue
+			}
+
+			// Check exclusion patterns
+			if yamlVendor, yamlExists := config.Vendors[vendorKey]; yamlExists {
+				excluded := false
+				for _, exclusion := range yamlVendor.ExclusionPatterns {
+					if strings.Contains(contactLower, strings.ToLower(exclusion)) {
+						excluded = true
+						break
+					}
+				}
+
+				if !excluded && priority < bestPriority {
+					bestMatch = vendorKey
+					bestPriority = priority
+				}
+			} else {
+				if priority < bestPriority {
+					bestMatch = vendorKey
+					bestPriority = priority
+				}
+			}
+		}
+
+		if bestMatch != "" {
+			return bestMatch
+		}
+	} else {
+		// Fallback to pattern matching
+		for vendor, patterns := range VendorSpecificOIDPatterns {
+			for _, pattern := range patterns {
+				if strings.Contains(contactLower, strings.ToLower(pattern)) {
+					return vendor
+				}
 			}
 		}
 	}

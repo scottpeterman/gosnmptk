@@ -681,7 +681,7 @@ func (s *CLIScanner) scanTargets(targets []string) {
 				}
 
 				// Record to persistence if enabled
-				if s.persistenceBridge != nil && result.SNMPReady {
+				if s.persistenceBridge != nil && result.Responding {
 					s.recordScanResultToPersistence(result)
 				}
 
