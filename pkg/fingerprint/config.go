@@ -49,12 +49,15 @@ type YAMLVendorConfig struct {
 }
 
 // YAMLOIDEntry represents an OID entry in YAML
+// YAMLOIDEntry represents an OID entry in YAML
 type YAMLOIDEntry struct {
-	Name        string   `yaml:"name"`
-	OID         string   `yaml:"oid"`
-	Priority    int      `yaml:"priority"`
-	Description string   `yaml:"description"`
-	DeviceTypes []string `yaml:"device_types,omitempty"`
+	Name           string   `yaml:"name"`
+	OID            string   `yaml:"oid"`
+	Priority       int      `yaml:"priority"`
+	Description    string   `yaml:"description"`
+	DeviceTypes    []string `yaml:"device_types,omitempty"`
+	Definitive     bool     `yaml:"definitive,omitempty"`      // Add this line
+	ExpectedValues []string `yaml:"expected_values,omitempty"` // Add this line
 }
 
 // ConfigManager manages the YAML configuration
