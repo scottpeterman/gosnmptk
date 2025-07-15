@@ -1030,7 +1030,7 @@ func (a *SNMPTestApp) executeSNMPOperation() {
 		} else {
 			a.logMessage(fmt.Sprintf("WALK SUCCESS: Found %d variables", len(variables)), "success")
 			for i, variable := range variables {
-				if i >= 20 { // Limit output to first 20 items
+				if i >= 100 { // Limit output to first 20 items
 					a.logMessage(fmt.Sprintf("... and %d more items", len(variables)-20), "info")
 					break
 				}
