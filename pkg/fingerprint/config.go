@@ -39,13 +39,14 @@ type YAMLConfig struct {
 
 // YAMLVendorConfig represents a vendor configuration in YAML
 type YAMLVendorConfig struct {
-	DisplayName       string         `yaml:"display_name"`
-	EnterpriseOID     string         `yaml:"enterprise_oid"`
-	DetectionPatterns []string       `yaml:"detection_patterns"`
-	OIDPatterns       []string       `yaml:"oid_patterns"`
-	DeviceTypes       []string       `yaml:"device_types"`
-	ExclusionPatterns []string       `yaml:"exclusion_patterns,omitempty"`
-	FingerprintOIDs   []YAMLOIDEntry `yaml:"fingerprint_oids"`
+	DisplayName         string              `yaml:"display_name"`
+	EnterpriseOID       string              `yaml:"enterprise_oid"`
+	DetectionPatterns   []string            `yaml:"detection_patterns"`
+	OIDPatterns         []string            `yaml:"oid_patterns"`
+	DeviceTypes         []string            `yaml:"device_types"`
+	ExclusionPatterns   []string            `yaml:"exclusion_patterns,omitempty"`
+	DeviceTypeOverrides map[string][]string `yaml:"device_type_overrides"`
+	FingerprintOIDs     []YAMLOIDEntry      `yaml:"fingerprint_oids"`
 }
 
 // YAMLOIDEntry represents an OID entry in YAML

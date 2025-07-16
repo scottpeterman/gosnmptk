@@ -57,21 +57,24 @@ func (s *CLIScanner) extractSysObjectID(result CLIScanResult) string {
 
 // YAML Configuration Structures
 type VendorConfig struct {
-	DisplayName       string           `yaml:"display_name"`
-	EnterpriseOID     string           `yaml:"enterprise_oid"`
-	DetectionPatterns []string         `yaml:"detection_patterns"`
-	OIDPatterns       []string         `yaml:"oid_patterns"`
-	DeviceTypes       []string         `yaml:"device_types"`
-	ExclusionPatterns []string         `yaml:"exclusion_patterns"`
-	FingerprintOIDs   []FingerprintOID `yaml:"fingerprint_oids"`
+	DisplayName         string              `yaml:"display_name"`
+	EnterpriseOID       string              `yaml:"enterprise_oid"`
+	DetectionPatterns   []string            `yaml:"detection_patterns"`
+	OIDPatterns         []string            `yaml:"oid_patterns"`
+	DeviceTypes         []string            `yaml:"device_types"`
+	ExclusionPatterns   []string            `yaml:"exclusion_patterns"`
+	DeviceTypeOverrides map[string][]string `yaml:"device_type_overrides"`
+	FingerprintOIDs     []FingerprintOID    `yaml:"fingerprint_oids"`
 }
 
 type FingerprintOID struct {
-	Name        string   `yaml:"name"`
-	OID         string   `yaml:"oid"`
-	Priority    int      `yaml:"priority"`
-	Description string   `yaml:"description"`
-	DeviceTypes []string `yaml:"device_types"`
+	Name           string   `yaml:"name"`
+	OID            string   `yaml:"oid"`
+	Priority       int      `yaml:"priority"`
+	Description    string   `yaml:"description"`
+	DeviceTypes    []string `yaml:"device_types"`
+	Definitive     bool     `yaml:"definitive,omitempty"`
+	ExpectedValues []string `yaml:"expected_values,omitempty"`
 }
 
 type DetectionRules struct {
@@ -712,7 +715,6 @@ func (s *CLIScanner) scanTargets(targets []string) {
 		}
 	}
 }
-
 func (s *CLIScanner) scanHost(ip string) CLIScanResult {
 	result := CLIScanResult{
 		IP:       ip,
@@ -785,24 +787,37 @@ func (s *CLIScanner) scanHost(ip string) CLIScanResult {
 			result.VendorConfidence = confidence
 			result.VendorMethod = method
 
-			// Set device type using YAML configuration
-			result.DeviceType = s.detectDeviceTypeFromYAML(vendor, result.SystemDescr)
+			// IMPORTANT: ALWAYS perform enhanced fingerprinting if we have a client
+			// This allows vendor correction to happen first
+			if client != nil && s.config.FingerprintType != "basic" {
+				s.performYAMLBasedFingerprinting(client, &result)
+			}
 
-			// Extract model using vendor-specific logic
-			result.Model = s.extractModelFromSysDescr(result.SystemDescr, vendor)
+			// CRITICAL: ALWAYS set device type using YAML configuration
+			// This should happen regardless of fingerprint type
+			if s.config.Verbose {
+				fmt.Printf("🔍 About to call detectDeviceTypeFromYAML with vendor='%s', sysDescr='%s'\n",
+					result.DetectedVendor, s.truncateString(result.SystemDescr, 50))
+			}
+
+			result.DeviceType = s.detectDeviceTypeFromYAML(result.DetectedVendor, result.SystemDescr)
+
+			if s.config.Verbose {
+				fmt.Printf("🔍 Device type detection result: '%s'\n", result.DeviceType)
+			}
+
+			// Extract model using vendor-specific logic (using corrected vendor)
+			result.Model = s.extractModelFromSysDescr(result.SystemDescr, result.DetectedVendor)
 
 			// Debug output to verify vendor detection is working
 			if s.config.Verbose {
-				fmt.Printf("🔍 Vendor Detection: IP=%s, Vendor=%s, Confidence=%s, Method=%s, SysOID=%s\n",
-					ip, vendor, confidence, method, sysObjectID)
+				fmt.Printf("🔍 Final Vendor Detection: IP=%s, Vendor=%s, DeviceType=%s, Confidence=%s, Method=%s, SysOID=%s\n",
+					ip, result.DetectedVendor, result.DeviceType, confidence, method, sysObjectID)
 			}
 		}
 
-		// Perform enhanced fingerprinting if enabled and we have vendor info
+		// Close SNMP client after all operations
 		if client != nil {
-			if result.DetectedVendor != "unknown" && result.DetectedVendor != "" && s.config.FingerprintType != "basic" {
-				s.performYAMLBasedFingerprinting(client, &result)
-			}
 			client.Close()
 		}
 	}
@@ -817,13 +832,6 @@ func (s *CLIScanner) performYAMLBasedFingerprinting(client *snmp.Client, result 
 		return
 	}
 
-	vendorConfig, exists := s.vendorConfig.Vendors[result.DetectedVendor]
-	if !exists {
-		// Vendor not in YAML config, use library fingerprinting
-		s.performDetailedFingerprinting(client, result)
-		return
-	}
-
 	result.FingerprintPerformed = true
 
 	// Initialize vendor data
@@ -831,40 +839,95 @@ func (s *CLIScanner) performYAMLBasedFingerprinting(client *snmp.Client, result 
 		result.VendorData = make(map[string]string)
 	}
 
-	// Query vendor-specific OIDs from YAML configuration
-	for _, fingerprintOID := range vendorConfig.FingerprintOIDs {
-		// Check if this OID applies to the detected device type
-		if len(fingerprintOID.DeviceTypes) > 0 {
-			deviceTypeMatches := false
-			for _, deviceType := range fingerprintOID.DeviceTypes {
-				if deviceType == result.DeviceType {
-					deviceTypeMatches = true
-					break
+	// Track which vendors respond to their specific OIDs
+	vendorOIDMatches := make(map[string]int)
+	detectedVendorFromOID := ""
+	bestOIDScore := 0
+	originalVendor := result.DetectedVendor
+
+	// Test ALL vendors' OIDs, not just the initially detected vendor
+	for vendorKey, vendorConfig := range s.vendorConfig.Vendors {
+		if s.config.Verbose {
+			fmt.Printf("🔍 Testing %s vendor-specific OIDs...\n", vendorKey)
+		}
+
+		vendorMatches := 0
+
+		// Query vendor-specific OIDs from YAML configuration
+		for _, yamlOID := range vendorConfig.FingerprintOIDs {
+			// Check if this OID applies to the detected device type
+			if len(yamlOID.DeviceTypes) > 0 {
+				deviceTypeMatches := false
+				for _, deviceType := range yamlOID.DeviceTypes {
+					if deviceType == result.DeviceType {
+						deviceTypeMatches = true
+						break
+					}
+				}
+				if !deviceTypeMatches {
+					continue
 				}
 			}
-			if !deviceTypeMatches {
+
+			if s.config.Verbose {
+				fmt.Printf("  Testing %s OID: %s (%s)\n", vendorKey, yamlOID.Name, yamlOID.OID)
+			}
+
+			// Query the OID
+			value, err := client.Get(yamlOID.OID)
+			if err != nil {
+				if s.config.Verbose {
+					fmt.Printf("    FAILED: %v\n", err)
+				}
 				continue
 			}
-		}
 
-		// Query the OID
-		value, err := client.Get(fingerprintOID.OID)
-		if err != nil {
-			if s.config.Verbose {
-				fmt.Printf("🔍 Failed to get %s (%s): %v\n", fingerprintOID.Name, fingerprintOID.OID, err)
+			if value == "" || !s.isValidSNMPResponse(value) {
+				if s.config.Verbose {
+					fmt.Printf("    INVALID: %s\n", value)
+				}
+				continue
 			}
-			continue
-		}
 
-		if value != "" {
-			result.VendorData[fingerprintOID.Name] = value
+			// SUCCESS! This vendor's OID responded
+			vendorMatches++
+			result.VendorData[yamlOID.Name] = value
+
+			if s.config.Verbose {
+				fmt.Printf("    SUCCESS: %s = %s\n", yamlOID.Name, s.truncateString(value, 40))
+			}
 
 			// Extract specific fields based on OID name/description
-			s.extractFieldsFromYAMLFingerprint(fingerprintOID, value, result)
+			s.extractFieldsFromYAMLFingerprint(yamlOID, value, result)
 
-			if s.config.Verbose {
-				fmt.Printf("🔍 Got %s: %s\n", fingerprintOID.Name, s.truncateString(value, 40))
+			// If this is a definitive OID, this vendor is confirmed
+			if yamlOID.Definitive {
+				if s.config.Verbose {
+					fmt.Printf("    *** DEFINITIVE OID MATCH for %s ***\n", vendorKey)
+				}
+				detectedVendorFromOID = vendorKey
+				bestOIDScore = 1000 // Definitive match gets highest score
+				break
 			}
+		}
+
+		// Track vendor matches
+		if vendorMatches > 0 {
+			vendorOIDMatches[vendorKey] = vendorMatches
+			if s.config.Verbose {
+				fmt.Printf("  %s: %d OIDs responded\n", vendorKey, vendorMatches)
+			}
+
+			// Update best OID-based detection (non-definitive)
+			if detectedVendorFromOID == "" && vendorMatches > bestOIDScore {
+				detectedVendorFromOID = vendorKey
+				bestOIDScore = vendorMatches
+			}
+		}
+
+		// Break if we found a definitive match
+		if bestOIDScore >= 1000 {
+			break
 		}
 	}
 
@@ -875,15 +938,110 @@ func (s *CLIScanner) performYAMLBasedFingerprinting(client *snmp.Client, result 
 			continue
 		}
 
-		if value != "" {
+		if value != "" && s.isValidSNMPResponse(value) {
 			result.VendorData[genericOID.Name] = value
-			s.extractFieldsFromYAMLFingerprint(genericOID, value, result)
+			s.extractFieldsFromYAMLFingerprintGeneric(genericOID, value, result)
+		}
+	}
+
+	// UPDATE VENDOR BASED ON SUCCESSFUL OID RESPONSES
+	if detectedVendorFromOID != "" && detectedVendorFromOID != "unknown" {
+		if originalVendor == "unknown" || originalVendor == "" || bestOIDScore >= 1000 {
+			if s.config.Verbose {
+				fmt.Printf("🎯 VENDOR CORRECTION: %s -> %s (based on %d successful OIDs)\n",
+					originalVendor, detectedVendorFromOID, bestOIDScore)
+			}
+
+			result.DetectedVendor = detectedVendorFromOID
+
+			// Update confidence and method
+			if bestOIDScore >= 1000 {
+				result.VendorConfidence = "high"
+				result.VendorMethod = "definitive_oid_match"
+			} else {
+				result.VendorConfidence = "high"
+				result.VendorMethod = fmt.Sprintf("oid_based_detection_%d_matches", bestOIDScore)
+			}
+
+			// Also update device type based on the corrected vendor
+			if correctedDeviceType := s.detectDeviceTypeFromYAML(detectedVendorFromOID, result.SystemDescr); correctedDeviceType != "" {
+				if s.config.Verbose {
+					fmt.Printf("🎯 DEVICE TYPE CORRECTION: %s -> %s\n", result.DeviceType, correctedDeviceType)
+				}
+				result.DeviceType = correctedDeviceType
+			}
+		} else {
+			fmt.Printf("No DEVICE TYPE CORRECTION needed: %s already detected as %s\n", originalVendor, detectedVendorFromOID)
+		}
+	}
+
+	// Log the final result
+	if s.config.Verbose {
+		fmt.Printf("🔍 Final result: Vendor=%s, Confidence=%s, Method=%s\n",
+			result.DetectedVendor, result.VendorConfidence, result.VendorMethod)
+
+		if len(vendorOIDMatches) > 0 {
+			fmt.Printf("🔍 Vendor OID matches: %v\n", vendorOIDMatches)
 		}
 	}
 
 	// If we still don't have model/serial/firmware, try library fingerprinting as enhancement
 	if result.Model == "" || result.SerialNumber == "" || result.FirmwareVersion == "" {
 		s.performDetailedFingerprinting(client, result)
+	}
+}
+func (s *CLIScanner) isValidSNMPResponse(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	// Invalid SNMP response patterns
+	invalidResponses := []string{
+		"No Such Object currently exists at this OID",
+		"No Such Instance currently exists at this OID",
+		"End of MIB",
+		"NULL",
+		"None",
+		"\"\"",
+		"<nil>",
+		"noSuchObject",
+		"noSuchInstance",
+	}
+
+	valueLower := strings.ToLower(value)
+	for _, invalid := range invalidResponses {
+		if strings.Contains(valueLower, strings.ToLower(invalid)) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (s *CLIScanner) extractFieldsFromYAMLFingerprintGeneric(oid FingerprintOID, value string, result *CLIScanResult) {
+	nameLower := strings.ToLower(oid.Name)
+	descLower := strings.ToLower(oid.Description)
+
+	// Model detection
+	if (strings.Contains(nameLower, "model") ||
+		strings.Contains(nameLower, "platform") ||
+		strings.Contains(descLower, "model")) && result.Model == "" {
+		result.Model = value
+	}
+
+	// Serial number detection
+	if (strings.Contains(nameLower, "serial") ||
+		strings.Contains(nameLower, "service tag") ||
+		strings.Contains(descLower, "serial")) && result.SerialNumber == "" {
+		result.SerialNumber = value
+	}
+
+	// Firmware/software version detection
+	if (strings.Contains(nameLower, "version") ||
+		strings.Contains(nameLower, "firmware") ||
+		strings.Contains(nameLower, "software") ||
+		strings.Contains(descLower, "version")) && result.FirmwareVersion == "" {
+		result.FirmwareVersion = value
 	}
 }
 
@@ -1179,14 +1337,92 @@ func (s *CLIScanner) detectVendorFromYAML(sysDescr, sysObjectID string) (string,
 	return s.detectVendorBuiltIn(sysDescrLower)
 }
 
+func getMapKeys(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func (s *CLIScanner) detectDeviceTypeFromYAML(vendor, sysDescr string) string {
+	// Add debug output at the beginning
+	if s.config.Verbose {
+		fmt.Printf("🔍 DEBUG detectDeviceTypeFromYAML called: vendor='%s', sysDescr='%s'\n",
+			vendor, s.truncateString(sysDescr, 50))
+	}
+
 	if s.vendorConfig == nil || vendor == "" || vendor == "unknown" {
+		if s.config.Verbose {
+			fmt.Printf("🔍 DEBUG: Using generic detection (vendorConfig=%t, vendor='%s')\n",
+				s.vendorConfig != nil, vendor)
+		}
 		return s.detectDeviceTypeGeneric(sysDescr)
 	}
 
 	vendorConfig, exists := s.vendorConfig.Vendors[vendor]
 	if !exists {
+		if s.config.Verbose {
+			fmt.Printf("🔍 DEBUG: Vendor '%s' not found in config, using generic\n", vendor)
+		}
 		return s.detectDeviceTypeGeneric(sysDescr)
+	}
+
+	if s.config.Verbose {
+		fmt.Printf("🔍 DEBUG: Found vendor config for '%s' with %d device types\n",
+			vendor, len(vendorConfig.DeviceTypes))
+	}
+
+	sysDescrLower := strings.ToLower(sysDescr)
+
+	// DEBUG: Add logging to see what's happening
+	if s.config.Verbose {
+		fmt.Printf("🔍 DEBUG detectDeviceTypeFromYAML:\n")
+		fmt.Printf("  Vendor: %s\n", vendor)
+		fmt.Printf("  sysDescr: %s\n", sysDescr)
+		fmt.Printf("  sysDescrLower: %s\n", sysDescrLower)
+		fmt.Printf("  Has overrides: %t\n", len(vendorConfig.DeviceTypeOverrides) > 0)
+		if len(vendorConfig.DeviceTypeOverrides) > 0 {
+			fmt.Printf("  Override keys: %v\n", getMapKeys(vendorConfig.DeviceTypeOverrides))
+		}
+	}
+
+	// NEW: Check device type overrides FIRST
+	if len(vendorConfig.DeviceTypeOverrides) > 0 {
+		for deviceType, patterns := range vendorConfig.DeviceTypeOverrides {
+			if s.config.Verbose {
+				fmt.Printf("  Testing device type: %s with %d patterns\n", deviceType, len(patterns))
+			}
+
+			for _, pattern := range patterns {
+				patternLower := strings.ToLower(pattern)
+				if s.config.Verbose {
+					fmt.Printf("    Testing pattern: '%s'\n", pattern)
+					fmt.Printf("    Pattern lower: '%s'\n", patternLower)
+					fmt.Printf("    Contains check: %t\n", strings.Contains(sysDescrLower, patternLower))
+				}
+
+				if strings.Contains(sysDescrLower, patternLower) {
+					// Verify this device type is allowed for this vendor
+					for _, allowedType := range vendorConfig.DeviceTypes {
+						if allowedType == deviceType {
+							if s.config.Verbose {
+								fmt.Printf("🎯 Device type override SUCCESS: %s -> %s (pattern: %s)\n",
+									vendor, deviceType, pattern)
+							}
+							return deviceType
+						}
+					}
+					if s.config.Verbose {
+						fmt.Printf("    Pattern matched but device type '%s' not in allowed types: %v\n",
+							deviceType, vendorConfig.DeviceTypes)
+					}
+				}
+			}
+		}
+		if s.config.Verbose {
+			fmt.Printf("  No override patterns matched, falling back to generic detection\n")
+		}
 	}
 
 	// If vendor has only one device type, use it
@@ -1197,10 +1433,7 @@ func (s *CLIScanner) detectDeviceTypeFromYAML(vendor, sysDescr string) string {
 		return vendorConfig.DeviceTypes[0]
 	}
 
-	// Try to infer from sysDescr using allowed device types
-	sysDescrLower := strings.ToLower(sysDescr)
-
-	// Enhanced device type patterns with vendor-specific logic
+	// Continue with existing pattern matching...
 	typePatterns := map[string][]string{
 		"switch":                {"switch", "switching", "catalyst", "nexus", "dcs-", "procurve"},
 		"router":                {"router", "routing", "isr", "asr", "mx", "srx"},
@@ -1218,6 +1451,7 @@ func (s *CLIScanner) detectDeviceTypeFromYAML(vendor, sysDescr string) string {
 		"management":            {"panorama", "management"},
 		"print_server":          {"jetdirect", "print server"},
 		"network_interface":     {"network interface", "jetdirect"},
+		"access_point":          {"access point", "ap"},
 	}
 
 	// Check patterns in order of specificity
@@ -1521,51 +1755,33 @@ func (s *CLIScanner) outputJSON() {
 func (s *CLIScanner) outputCSV() {
 	var output [][]string
 
-	if s.config.ShowDetails {
-		output = append(output, []string{
-			"IP", "Hostname", "Responding", "RTT_ms", "SNMP_Ready", "SNMP_Version",
-			"Detected_Vendor", "Device_Type", "Model", "Serial", "Firmware",
-			"System_Description", "Error", "Scan_Time",
-		})
-	} else {
-		output = append(output, []string{
-			"IP", "Hostname", "Responding", "SNMP_Ready", "Vendor", "Model",
-		})
-	}
+	// Standard CSV output with essential fields including system description for gap analysis
+	output = append(output, []string{
+		"IP", "Hostname", "Responding", "SNMP_Ready", "SNMP_Version",
+		"Detected_Vendor", "Vendor_Confidence", "Device_Type", "Model",
+		"Serial", "Firmware", "System_Description", "Error",
+	})
 
 	for _, result := range s.results {
-		var row []string
-		if s.config.ShowDetails {
-			rttMs := ""
-			if result.RTT > 0 {
-				rttMs = fmt.Sprintf("%.1f", float64(result.RTT.Nanoseconds())/1000000)
-			}
-
-			row = []string{
-				result.IP,
-				result.Hostname,
-				fmt.Sprintf("%t", result.Responding),
-				rttMs,
-				fmt.Sprintf("%t", result.SNMPReady),
-				result.SNMPVersion,
-				result.DetectedVendor,
-				result.DeviceType,
-				result.Model,
-				result.SerialNumber,
-				result.FirmwareVersion,
-				result.SystemDescr,
-				result.Error,
-				result.ScanTime.Format(time.RFC3339),
-			}
-		} else {
-			row = []string{
-				result.IP,
-				result.Hostname,
-				fmt.Sprintf("%t", result.Responding),
-				fmt.Sprintf("%t", result.SNMPReady),
-				result.DetectedVendor,
-				result.Model,
-			}
+		rttMs := ""
+		if result.RTT > 0 {
+			rttMs = fmt.Sprintf("%.1f", float64(result.RTT.Nanoseconds())/1000000)
+		}
+		fmt.Print(rttMs)
+		row := []string{
+			result.IP,
+			result.Hostname,
+			fmt.Sprintf("%t", result.Responding),
+			fmt.Sprintf("%t", result.SNMPReady),
+			result.SNMPVersion,
+			result.DetectedVendor,
+			result.VendorConfidence,
+			result.DeviceType,
+			result.Model,
+			result.SerialNumber,
+			result.FirmwareVersion,
+			result.SystemDescr, // System description always included
+			result.Error,
 		}
 		output = append(output, row)
 	}

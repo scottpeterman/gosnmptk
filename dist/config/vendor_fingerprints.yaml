@@ -311,7 +311,7 @@ vendors:
         priority: 1
         description: "Arista EOS build information"
 
-  aruba:
+aruba:
     display_name: "Aruba Networks (HPE)"
     enterprise_oid: "1.3.6.1.4.1.11"
     detection_patterns:
@@ -335,7 +335,6 @@ vendors:
       - "switch"
       - "wireless_controller"
       - "access_point"
-    # Add exclusion patterns to prevent Lexmark misclassification
     exclusion_patterns:
       - "lexmark"
       - "mxtgw"
@@ -343,6 +342,27 @@ vendors:
       - "cxtpp"
       - "msngw"
       - "nh41"
+    device_type_overrides:
+      access_point:
+        - "arubaos (model:"
+        - ") ssr"
+        - "instant"
+      switch:
+        - "swch"
+        - "procurve"
+        - "jl675a"
+        - "6100"
+        - "6200"
+        - "6300"
+        - "6400"
+      wireless_controller:
+        - "wireless lan controller"
+        - "mobility controller"
+        - "7005"
+        - "7210"
+        - "7240"
+        - "9004"
+        - "9012"
     fingerprint_oids:
       - name: "HP Entity Module Description"
         oid: "1.3.6.1.4.1.11.2.14.11.1.2.3.1.4.1"
@@ -359,6 +379,12 @@ vendors:
         priority: 1
         description: "Aruba wireless controller model"
         device_types: ["wireless_controller"]
+      - name: "Aruba OS Version"
+        oid: "1.3.6.1.4.1.14823.2.3.3.1.1.4.0"
+        priority: 1
+        definitive: true
+        description: "Aruba AOS Version"
+        device_types: ["wireless_controller", "access_point"]
 
   hp_network:
     display_name: "HP Network Interfaces"
@@ -557,10 +583,15 @@ vendors:
         oid: "1.3.6.1.4.1.318.1.1.1.1.1.1.0"
         priority: 1
         description: "APC UPS model"
-      - name: "APC Serial Number"
-        oid: "1.3.6.1.4.1.318.1.1.1.1.2.3.0"
+      - name: "APC Model Number 2"
+        oid: "1.3.6.1.4.1.318.1.1.1.1.1.1.0"
         priority: 1
-        description: "APC UPS serial number"
+        description: "APC UPS model Alt"
+      - name: "APC Version"
+        oid: " .1.3.6.1.4.1.318.1.1.12.1.3.0"
+        priority: 1
+        description: "APC UPS OS Version"
+        definitive: true
 
 # Detection rules and priorities
 detection_rules:
