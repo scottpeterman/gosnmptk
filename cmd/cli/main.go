@@ -1,5 +1,6 @@
 package main
 
+// Add these imports to the top of main.go
 import (
 	"bufio"
 	"context"
@@ -24,78 +25,18 @@ import (
 	"github.com/scottpeterman/gosnmptk/pkg/snmp"
 )
 
-const (
-	Version = "1.0.0"
-	Banner  = `
-   ▄████  ▒█████       ██████  ███▄    █  ███▄ ▄███▓ ██▓███      ▄████▄   ██▓     ██▓
-  ██▒ ▀█▒▒██▒  ██▒   ▒██    ▒  ██ ▀█   █ ▓██▒▀█▀ ██▒▓██░  ██▒   ▒██▀ ▀█  ▓██▒    ▓██▒
- ▒██░▄▄▄░▒██░  ██▒   ░ ▓██▄   ▓██  ▀█ ██▒▓██    ▓██░▓██░ ██▓▒   ▒▓█    ▄ ▒██░    ▒██▒
- ░▓█  ██▓▒██   ██░     ▒   ██▒▓██▒  ▐▌██▒▒██    ▒██ ▒██▄█▓▒ ▒   ▒▓▓▄ ▄██▒▒██░    ░██░
- ░▒▓███▀▒░ ████▓▒░   ▒██████▒▒▒██░   ▓██░▒██▒   ░██▒▒██▒ ░  ░   ▒ ▓███▀ ░░██████▒░██░
-  ░▒   ▒ ░ ▒░▒░▒░    ▒ ▒▓▒ ▒ ░░ ▒░   ▒ ▒ ░ ▒░   ░  ░▒▓▒░ ░  ░   ░ ░▒ ▒  ░░ ▒░▓  ░░▓  
-   ░   ░   ░ ▒ ▒░    ░ ░▒  ░ ░░ ░░   ░ ▒░░  ░      ░░▒ ░          ░  ▒   ░ ░ ▒  ░ ▒ ░
- ░ ░   ░ ░ ░ ░ ▒     ░  ░  ░     ░   ░ ░ ░      ░   ░░          ░          ░ ░    ▒ ░
-       ░     ░ ░           ░           ░        ░               ░ ░          ░  ░ ░  
-                                                               ░                    
- Go SNMP Toolkit CLI - Network Discovery & Vendor Fingerprinting v%s
-`
-)
-
-func (s *CLIScanner) extractSysObjectID(result CLIScanResult) string {
-	// Look for sysObjectID in vendor data
-	if result.VendorData != nil {
-		for key, value := range result.VendorData {
-			if strings.Contains(strings.ToLower(key), "object") ||
-				strings.Contains(strings.ToLower(key), "oid") ||
-				key == "1.3.6.1.2.1.1.2.0" { // Standard sysObjectID OID
-				return value
-			}
-		}
-	}
-	return ""
+// VendorDetectionLogger handles vendor detection logging
+type VendorDetectionLogger struct {
+	enabled bool
+	verbose bool
+	logFile *os.File
+	logger  *log.Logger
 }
 
-// YAML Configuration Structures
-type VendorConfig struct {
-	DisplayName         string              `yaml:"display_name"`
-	EnterpriseOID       string              `yaml:"enterprise_oid"`
-	DetectionPatterns   []string            `yaml:"detection_patterns"`
-	OIDPatterns         []string            `yaml:"oid_patterns"`
-	DeviceTypes         []string            `yaml:"device_types"`
-	ExclusionPatterns   []string            `yaml:"exclusion_patterns"`
-	DeviceTypeOverrides map[string][]string `yaml:"device_type_overrides"`
-	FingerprintOIDs     []FingerprintOID    `yaml:"fingerprint_oids"`
-}
-
-type FingerprintOID struct {
-	Name           string   `yaml:"name"`
-	OID            string   `yaml:"oid"`
-	Priority       int      `yaml:"priority"`
-	Description    string   `yaml:"description"`
-	DeviceTypes    []string `yaml:"device_types"`
-	Definitive     bool     `yaml:"definitive,omitempty"`
-	ExpectedValues []string `yaml:"expected_values,omitempty"`
-}
-
-type DetectionRules struct {
-	PriorityOrder    []string          `yaml:"priority_order"`
-	ConfidenceLevels map[string]string `yaml:"confidence_levels"`
-}
-
-type VendorFingerprintConfig struct {
-	Version        string                  `yaml:"version"`
-	Metadata       map[string]interface{}  `yaml:"metadata"`
-	CommonOIDs     map[string]string       `yaml:"common_oids"`
-	GenericOIDs    []FingerprintOID        `yaml:"generic_oids"`
-	Vendors        map[string]VendorConfig `yaml:"vendors"`
-	DetectionRules DetectionRules          `yaml:"detection_rules"`
-	Scanning       map[string]interface{}  `yaml:"scanning"`
-}
-
-// CLI Configuration
+// CLIConfig represents the complete configuration for the CLI scanner
 type CLIConfig struct {
 	// Operation mode
-	Mode string // scan, fingerprint, test, discover
+	Mode string // scan, fingerprint, test, discover, query
 
 	// Network targets
 	Target    string   // Single IP or CIDR
@@ -137,6 +78,166 @@ type CLIConfig struct {
 	PingTimeout   time.Duration
 	PortTimeout   time.Duration
 	DiscoveryScan bool
+
+	// Vendor debugging options (NEW - add these fields to your existing CLIConfig)
+	VendorDebug   bool   // Enable vendor detection debugging
+	VendorLogFile string // Path to vendor detection log file
+}
+
+// NewVendorDetectionLogger creates a new vendor detection logger
+func NewVendorDetectionLogger(enabled, verbose bool, logPath string) *VendorDetectionLogger {
+	vdl := &VendorDetectionLogger{
+		enabled: enabled,
+		verbose: verbose,
+	}
+
+	if enabled && logPath != "" {
+		if file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err == nil {
+			vdl.logFile = file
+			vdl.logger = log.New(file, "[VENDOR] ", log.LstdFlags)
+		}
+	}
+
+	if vdl.logger == nil {
+		vdl.logger = log.New(os.Stdout, "[VENDOR] ", log.LstdFlags)
+	}
+
+	return vdl
+}
+
+// Close closes the log file if open
+func (vdl *VendorDetectionLogger) Close() {
+	if vdl.logFile != nil {
+		vdl.logFile.Close()
+	}
+}
+
+// LogDetectionStart logs the start of vendor detection
+func (vdl *VendorDetectionLogger) LogDetectionStart(ip, sysDescr, sysObjectID string) {
+	if !vdl.enabled {
+		return
+	}
+
+	vdl.logger.Printf("DETECTION_START ip=%s sysDescr='%s' sysObjectID='%s'",
+		ip, vdl.truncate(sysDescr, 100), sysObjectID)
+}
+
+// LogVendorTest logs testing of a specific vendor
+func (vdl *VendorDetectionLogger) LogVendorTest(vendor string, priority int, patterns, exclusions []string) {
+	if !vdl.enabled || !vdl.verbose {
+		return
+	}
+
+	vdl.logger.Printf("VENDOR_TEST vendor=%s priority=%d patterns=%v exclusions=%v",
+		vendor, priority, patterns, exclusions)
+}
+
+// LogPatternMatch logs when a pattern matches
+func (vdl *VendorDetectionLogger) LogPatternMatch(vendor, pattern, text string, matched bool, excluded bool) {
+	if !vdl.enabled {
+		return
+	}
+
+	status := "NO_MATCH"
+	if excluded {
+		status = "EXCLUDED"
+	} else if matched {
+		status = "MATCHED"
+	}
+
+	vdl.logger.Printf("PATTERN_TEST vendor=%s pattern='%s' status=%s text='%s'",
+		vendor, pattern, status, vdl.truncate(text, 50))
+}
+
+// LogDetectionResult logs the final detection result
+func (vdl *VendorDetectionLogger) LogDetectionResult(ip, vendor, confidence, method string) {
+	if !vdl.enabled {
+		return
+	}
+
+	vdl.logger.Printf("DETECTION_RESULT ip=%s vendor=%s confidence=%s method=%s",
+		ip, vendor, confidence, method)
+}
+
+// LogError logs detection errors
+func (vdl *VendorDetectionLogger) LogError(ip, error string) {
+	if !vdl.enabled {
+		return
+	}
+
+	vdl.logger.Printf("DETECTION_ERROR ip=%s error='%s'", ip, error)
+}
+
+// LogYAMLConfigStatus logs YAML configuration status
+func (vdl *VendorDetectionLogger) LogYAMLConfigStatus(loaded bool, vendorCount int, priorityOrder []string) {
+	if !vdl.enabled {
+		return
+	}
+
+	vdl.logger.Printf("YAML_CONFIG loaded=%t vendors=%d priority_order=%v",
+		loaded, vendorCount, priorityOrder)
+}
+
+// truncate truncates strings for cleaner logging
+func (vdl *VendorDetectionLogger) truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+const (
+	Version = "1.0.0"
+	Banner  = `
+   ▄████  ▒█████       ██████  ███▄    █  ███▄ ▄███▓ ██▓███      ▄████▄   ██▓     ██▓
+  ██▒ ▀█▒▒██▒  ██▒   ▒██    ▒  ██ ▀█   █ ▓██▒▀█▀ ██▒▓██░  ██▒   ▒██▀ ▀█  ▓██▒    ▓██▒
+ ▒██░▄▄▄░▒██░  ██▒   ░ ▓██▄   ▓██  ▀█ ██▒▓██    ▓██░▓██░ ██▓▒   ▒▓█    ▄ ▒██░    ▒██▒
+ ░▓█  ██▓▒██   ██░     ▒   ██▒▓██▒  ▐▌██▒▒██    ▒██ ▒██▄█▓▒ ▒   ▒▓▓▄ ▄██▒▒██░    ░██░
+ ░▒▓███▀▒░ ████▓▒░   ▒██████▒▒▒██░   ▓██░▒██▒   ░██▒▒██▒ ░  ░   ▒ ▓███▀ ░░██████▒░██░
+  ░▒   ▒ ░ ▒░▒░▒░    ▒ ▒▓▒ ▒ ░░ ▒░   ▒ ▒ ░ ▒░   ░  ░▒▓▒░ ░  ░   ░ ░▒ ▒  ░░ ▒░▓  ░░▓  
+   ░   ░   ░ ▒ ▒░    ░ ░▒  ░ ░░ ░░   ░ ▒░░  ░      ░░▒ ░          ░  ▒   ░ ░ ▒  ░ ▒ ░
+ ░ ░   ░ ░ ░ ░ ▒     ░  ░  ░     ░   ░ ░ ░      ░   ░░          ░          ░ ░    ▒ ░
+       ░     ░ ░           ░           ░        ░               ░ ░          ░  ░ ░  
+                                                               ░                    
+ Go SNMP Toolkit CLI - Network Discovery & Vendor Fingerprinting v%s
+`
+)
+
+// YAML Configuration Structures
+type VendorConfig struct {
+	DisplayName         string              `yaml:"display_name"`
+	EnterpriseOID       string              `yaml:"enterprise_oid"`
+	DetectionPatterns   []string            `yaml:"detection_patterns"`
+	OIDPatterns         []string            `yaml:"oid_patterns"`
+	DeviceTypes         []string            `yaml:"device_types"`
+	ExclusionPatterns   []string            `yaml:"exclusion_patterns"`
+	DeviceTypeOverrides map[string][]string `yaml:"device_type_overrides"`
+	FingerprintOIDs     []FingerprintOID    `yaml:"fingerprint_oids"`
+}
+
+type FingerprintOID struct {
+	Name           string   `yaml:"name"`
+	OID            string   `yaml:"oid"`
+	Priority       int      `yaml:"priority"`
+	Description    string   `yaml:"description"`
+	DeviceTypes    []string `yaml:"device_types"`
+	Definitive     bool     `yaml:"definitive,omitempty"`
+	ExpectedValues []string `yaml:"expected_values,omitempty"`
+}
+
+type DetectionRules struct {
+	PriorityOrder    []string          `yaml:"priority_order"`
+	ConfidenceLevels map[string]string `yaml:"confidence_levels"`
+}
+
+type VendorFingerprintConfig struct {
+	Version        string                  `yaml:"version"`
+	Metadata       map[string]interface{}  `yaml:"metadata"`
+	CommonOIDs     map[string]string       `yaml:"common_oids"`
+	GenericOIDs    []FingerprintOID        `yaml:"generic_oids"`
+	Vendors        map[string]VendorConfig `yaml:"vendors"`
+	DetectionRules DetectionRules          `yaml:"detection_rules"`
+	Scanning       map[string]interface{}  `yaml:"scanning"`
 }
 
 // ScanResult represents a CLI scan result
@@ -164,6 +265,7 @@ type CLIScanResult struct {
 	// Enhanced fingerprinting fields
 	FingerprintPerformed bool   `json:"fingerprint_performed"`
 	FingerprintError     string `json:"fingerprint_error,omitempty"`
+	vendorLogger         *VendorDetectionLogger
 }
 
 // CLI Scanner
@@ -188,8 +290,22 @@ type CLIScanner struct {
 
 	// Vendor configuration
 	vendorConfig *VendorFingerprintConfig
+	vendorLogger *VendorDetectionLogger
 }
 
+func (s *CLIScanner) extractSysObjectID(result CLIScanResult) string {
+	// Look for sysObjectID in vendor data
+	if result.VendorData != nil {
+		for key, value := range result.VendorData {
+			if strings.Contains(strings.ToLower(key), "object") ||
+				strings.Contains(strings.ToLower(key), "oid") ||
+				key == "1.3.6.1.2.1.1.2.0" { // Standard sysObjectID OID
+				return value
+			}
+		}
+	}
+	return ""
+}
 func main() {
 	config := parseFlags()
 
@@ -200,6 +316,7 @@ func main() {
 
 	// Create and configure scanner
 	scanner := NewCLIScanner(config)
+	defer scanner.vendorLogger.Close() // Clean up logging
 
 	if !config.Quiet {
 		fmt.Printf(Banner, Version)
@@ -224,18 +341,42 @@ func main() {
 	}
 }
 
+// ADD these lines at the beginning of your existing NewCLIScanner function:
+
 func NewCLIScanner(config CLIConfig) *CLIScanner {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// ADD THESE LINES:
+	// Create vendor detection logger
+	vendorLogEnabled := config.Verbose || os.Getenv("VENDOR_DEBUG") == "1"
+	vendorLogPath := os.Getenv("VENDOR_LOG_FILE")
+
 	scanner := &CLIScanner{
 		config:  config,
 		results: make([]CLIScanResult, 0),
 		ctx:     ctx,
 		cancel:  cancel,
+		// ADD THIS LINE:
+		vendorLogger: NewVendorDetectionLogger(vendorLogEnabled, config.Verbose, vendorLogPath),
 	}
 
 	// Load vendor configuration
 	if err := scanner.loadVendorConfig(); err != nil {
 		log.Printf("Warning: Failed to load vendor config: %v", err)
+		// ADD THIS LINE:
+		scanner.vendorLogger.LogError("system", fmt.Sprintf("Failed to load vendor config: %v", err))
+	} else {
+		// ADD THESE LINES:
+		// Log YAML config status
+		if scanner.vendorConfig != nil {
+			scanner.vendorLogger.LogYAMLConfigStatus(
+				true,
+				len(scanner.vendorConfig.Vendors),
+				scanner.vendorConfig.DetectionRules.PriorityOrder,
+			)
+		} else {
+			scanner.vendorLogger.LogYAMLConfigStatus(false, 0, nil)
+		}
 	}
 
 	return scanner
@@ -291,6 +432,7 @@ func (s *CLIScanner) loadVendorConfig() error {
 	return nil
 }
 
+// REPLACE your parseFlags function with this updated version
 func parseFlags() CLIConfig {
 	var config CLIConfig
 
@@ -338,6 +480,10 @@ func parseFlags() CLIConfig {
 	portTimeout := flag.Duration("port-timeout", 1*time.Second, "Port timeout")
 	flag.BoolVar(&config.DiscoveryScan, "discovery", false, "Network discovery")
 
+	// Vendor debugging flags (NEW)
+	flag.BoolVar(&config.VendorDebug, "vendor-debug", false, "Enable vendor detection debugging")
+	flag.StringVar(&config.VendorLogFile, "vendor-log", "", "Log vendor detection to file")
+
 	// Special flags
 	version := flag.Bool("version", false, "Show version")
 	help := flag.Bool("help", false, "Show help")
@@ -371,6 +517,19 @@ func parseFlags() CLIConfig {
 		config.PortTimeout = 500 * time.Millisecond
 		config.Retries = 1
 		config.Concurrency = 100
+	}
+
+	// Handle vendor debugging (can use either flags or environment variables)
+	if config.VendorDebug || os.Getenv("VENDOR_DEBUG") == "1" {
+		config.VendorDebug = true
+		os.Setenv("VENDOR_DEBUG", "1")
+	}
+
+	if config.VendorLogFile != "" || os.Getenv("VENDOR_LOG_FILE") != "" {
+		if config.VendorLogFile == "" {
+			config.VendorLogFile = os.Getenv("VENDOR_LOG_FILE")
+		}
+		os.Setenv("VENDOR_LOG_FILE", config.VendorLogFile)
 	}
 
 	// Load targets from file if specified
@@ -715,6 +874,7 @@ func (s *CLIScanner) scanTargets(targets []string) {
 		}
 	}
 }
+
 func (s *CLIScanner) scanHost(ip string) CLIScanResult {
 	result := CLIScanResult{
 		IP:       ip,
@@ -764,6 +924,9 @@ func (s *CLIScanner) scanHost(ip string) CLIScanResult {
 				sysObjectID, _ = client.Get("1.3.6.1.2.1.1.2.0")
 			}
 
+			// Log detection start with IP context
+			s.vendorLogger.LogDetectionStart(ip, result.SystemDescr, sysObjectID)
+
 			// PRIMARY: Use YAML-based detection first
 			vendor, confidence, method := s.detectVendorFromYAML(result.SystemDescr, sysObjectID)
 
@@ -786,6 +949,9 @@ func (s *CLIScanner) scanHost(ip string) CLIScanResult {
 			result.DetectedVendor = vendor
 			result.VendorConfidence = confidence
 			result.VendorMethod = method
+
+			// Log the final result with IP context
+			s.vendorLogger.LogDetectionResult(ip, vendor, confidence, method)
 
 			// IMPORTANT: ALWAYS perform enhanced fingerprinting if we have a client
 			// This allows vendor correction to happen first
@@ -1188,34 +1354,18 @@ func (s *CLIScanner) testConnectivity(ip string) (bool, time.Duration, error) {
 	return false, time.Since(start), fmt.Errorf("no services responding")
 }
 
+// REPLACE your existing testSNMP function with this fixed version:
+
 func (s *CLIScanner) testSNMP(ip string) (bool, string, string, string, string, *snmp.Client) {
 	port := uint16(161)
 
-	// Try SNMPv2c communities first
-	for _, community := range s.config.Communities {
-		client := snmp.NewClient(ip, port)
-		client.Community = community
-		client.Version = 1 // SNMPv2c
-		client.Timeout = s.config.Timeout
-		client.Retries = s.config.Retries
-
-		if err := client.Connect(); err != nil {
-			client.Close()
-			continue
+	// If SNMPv3 is explicitly requested, try only SNMPv3
+	if s.config.Version == 3 {
+		if s.config.Username == "" {
+			// SNMPv3 requested but no username provided
+			return false, "", "", "", "", nil
 		}
 
-		sysDescr, err := client.TestConnection()
-		if err != nil {
-			client.Close()
-			continue
-		}
-
-		sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
-		return true, community, "SNMPv2c", sysDescr, sysName, client
-	}
-
-	// Try SNMPv3 if configured
-	if s.config.Username != "" {
 		client := snmp.NewSNMPv3Client(
 			ip, port,
 			s.config.Username,
@@ -1232,6 +1382,75 @@ func (s *CLIScanner) testSNMP(ip string) (bool, string, string, string, string, 
 			if sysDescr, err := client.TestConnection(); err == nil {
 				sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
 				return true, s.config.Username, "SNMPv3", sysDescr, sysName, client
+			}
+		}
+		client.Close()
+		return false, "", "", "", "", nil
+	}
+
+	// If SNMPv1 or SNMPv2c is explicitly requested, or no version specified (default behavior)
+	if s.config.Version == 1 || s.config.Version == 2 || s.config.Version == 0 {
+		// Try SNMPv2c communities
+		for _, community := range s.config.Communities {
+			client := snmp.NewClient(ip, port)
+			client.Community = community
+
+			// Set the correct SNMP version
+			if s.config.Version == 1 {
+				client.Version = 0 // SNMPv1
+			} else {
+				client.Version = 1 // SNMPv2c (default)
+			}
+
+			client.Timeout = s.config.Timeout
+			client.Retries = s.config.Retries
+
+			if err := client.Connect(); err != nil {
+				client.Close()
+				continue
+			}
+
+			sysDescr, err := client.TestConnection()
+			if err != nil {
+				client.Close()
+				continue
+			}
+
+			sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
+			versionStr := "SNMPv2c"
+			if s.config.Version == 1 {
+				versionStr = "SNMPv1"
+			}
+			return true, community, versionStr, sysDescr, sysName, client
+		}
+
+		// If explicit version was requested and failed, don't try other versions
+		if s.config.Version == 1 || s.config.Version == 2 {
+			return false, "", "", "", "", nil
+		}
+	}
+
+	// Default behavior (version 0 or unspecified): Try SNMPv2c first, then SNMPv3 if configured
+	if s.config.Version == 0 {
+		// Try SNMPv3 as fallback if username is provided
+		if s.config.Username != "" {
+			client := snmp.NewSNMPv3Client(
+				ip, port,
+				s.config.Username,
+				s.config.AuthKey,
+				s.config.PrivKey,
+			)
+
+			client.AuthProtocol = snmp.AuthProtocolFromString(s.config.AuthProtocol)
+			client.PrivProtocol = snmp.PrivProtocolFromString(s.config.PrivProtocol)
+			client.Timeout = s.config.Timeout
+			client.Retries = s.config.Retries
+
+			if err := client.Connect(); err == nil {
+				if sysDescr, err := client.TestConnection(); err == nil {
+					sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
+					return true, s.config.Username, "SNMPv3", sysDescr, sysName, client
+				}
 			}
 			client.Close()
 		}
@@ -1252,8 +1471,13 @@ func (s *CLIScanner) lookupHostname(ip string) string {
 }
 
 // YAML-based vendor detection with built-in fallback
+
 func (s *CLIScanner) detectVendorFromYAML(sysDescr, sysObjectID string) (string, string, string) {
+	// Log detection start (without IP for this function - IP is logged in scanHost)
+	s.vendorLogger.LogDetectionStart("", sysDescr, sysObjectID)
+
 	if sysDescr == "" && sysObjectID == "" {
+		s.vendorLogger.LogDetectionResult("", "unknown", "none", "no_data")
 		return "unknown", "none", "no_data"
 	}
 
@@ -1262,31 +1486,35 @@ func (s *CLIScanner) detectVendorFromYAML(sysDescr, sysObjectID string) (string,
 
 	// If YAML config is loaded, use it with priority order
 	if s.vendorConfig != nil {
-		if s.config.Verbose {
-			fmt.Printf("🔍 Using YAML config with %d vendors in priority order\n", len(s.vendorConfig.DetectionRules.PriorityOrder))
-		}
-
 		// Use priority order from YAML config
-		for _, vendorName := range s.vendorConfig.DetectionRules.PriorityOrder {
+		for priority, vendorName := range s.vendorConfig.DetectionRules.PriorityOrder {
 			vendorConfig, exists := s.vendorConfig.Vendors[vendorName]
 			if !exists {
 				continue
 			}
 
-			// Check exclusion patterns first (critical for Lexmark vs Aruba confusion)
+			// Log vendor test start
+			s.vendorLogger.LogVendorTest(vendorName, priority,
+				vendorConfig.DetectionPatterns, vendorConfig.ExclusionPatterns)
+
+			// Check exclusion patterns first (critical for ION vs Cisco confusion)
 			excluded := false
+			excludedBy := ""
 			for _, exclusionPattern := range vendorConfig.ExclusionPatterns {
 				exclusionLower := strings.ToLower(exclusionPattern)
 				if strings.Contains(sysDescrLower, exclusionLower) ||
 					strings.Contains(sysObjectIDLower, exclusionLower) {
 					excluded = true
-					if s.config.Verbose {
-						fmt.Printf("🔍 Excluded %s due to pattern: %s\n", vendorName, exclusionPattern)
-					}
+					excludedBy = exclusionPattern
+					s.vendorLogger.LogPatternMatch(vendorName, exclusionPattern, sysDescr, true, true)
 					break
 				}
 			}
+
 			if excluded {
+				if s.config.Verbose {
+					fmt.Printf("🔍 Excluded %s due to pattern: %s\n", vendorName, excludedBy)
+				}
 				continue
 			}
 
@@ -1296,6 +1524,7 @@ func (s *CLIScanner) detectVendorFromYAML(sysDescr, sysObjectID string) (string,
 					if s.config.Verbose {
 						fmt.Printf("🔍 Matched %s by enterprise OID: %s\n", vendorName, vendorConfig.EnterpriseOID)
 					}
+					s.vendorLogger.LogDetectionResult("", vendorName, "high", "yaml_enterprise_oid")
 					return vendorName, "high", "yaml_enterprise_oid"
 				}
 			}
@@ -1303,11 +1532,15 @@ func (s *CLIScanner) detectVendorFromYAML(sysDescr, sysObjectID string) (string,
 			// Check OID patterns in sysObjectID
 			for _, pattern := range vendorConfig.OIDPatterns {
 				patternLower := strings.ToLower(pattern)
-				if (sysObjectID != "" && strings.Contains(sysObjectIDLower, patternLower)) ||
-					strings.Contains(sysDescrLower, patternLower) {
+				matched := (sysObjectID != "" && strings.Contains(sysObjectIDLower, patternLower)) ||
+					strings.Contains(sysDescrLower, patternLower)
+
+				if matched {
 					if s.config.Verbose {
 						fmt.Printf("🔍 Matched %s by OID pattern: %s\n", vendorName, pattern)
 					}
+					s.vendorLogger.LogPatternMatch(vendorName, pattern, sysDescr, true, false)
+					s.vendorLogger.LogDetectionResult("", vendorName, "medium", "yaml_oid_pattern")
 					return vendorName, "medium", "yaml_oid_pattern"
 				}
 			}
@@ -1315,10 +1548,16 @@ func (s *CLIScanner) detectVendorFromYAML(sysDescr, sysObjectID string) (string,
 			// Check detection patterns in sysDescr
 			for _, pattern := range vendorConfig.DetectionPatterns {
 				patternLower := strings.ToLower(pattern)
-				if strings.Contains(sysDescrLower, patternLower) {
+				matched := strings.Contains(sysDescrLower, patternLower)
+
+				// Always log pattern tests for debugging
+				s.vendorLogger.LogPatternMatch(vendorName, pattern, sysDescr, matched, false)
+
+				if matched {
 					if s.config.Verbose {
 						fmt.Printf("🔍 Matched %s by detection pattern: %s\n", vendorName, pattern)
 					}
+					s.vendorLogger.LogDetectionResult("", vendorName, "high", "yaml_detection_pattern")
 					return vendorName, "high", "yaml_detection_pattern"
 				}
 			}
@@ -1331,10 +1570,13 @@ func (s *CLIScanner) detectVendorFromYAML(sysDescr, sysObjectID string) (string,
 		if s.config.Verbose {
 			fmt.Printf("⚠️  No YAML config loaded, using built-in patterns\n")
 		}
+		s.vendorLogger.LogYAMLConfigStatus(false, 0, nil)
 	}
 
 	// Fallback to built-in patterns only if YAML config not available
-	return s.detectVendorBuiltIn(sysDescrLower)
+	vendor, confidence, method := s.detectVendorBuiltIn(sysDescrLower)
+	s.vendorLogger.LogDetectionResult("", vendor, confidence, method)
+	return vendor, confidence, method
 }
 
 func getMapKeys(m map[string][]string) []string {
