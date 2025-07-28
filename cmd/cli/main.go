@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,23 @@ type VendorDetectionLogger struct {
 	logger  *log.Logger
 }
 
+type TCPPortChecker struct {
+	timeout time.Duration
+	ports   []int
+}
+
+// SNMPVersionResult represents the result of SNMP version testing
+type SNMPVersionResult struct {
+	Success      bool
+	Version      string
+	Community    string
+	Username     string
+	SysDescr     string
+	SysName      string
+	Client       *snmp.Client
+	ErrorMessage string
+}
+
 // CLIConfig represents the complete configuration for the CLI scanner
 type CLIConfig struct {
 	// Operation mode
@@ -44,7 +62,7 @@ type CLIConfig struct {
 	PortRange string   // Port range for discovery
 
 	// SNMP Configuration
-	Communities  []string
+	Community    string
 	Username     string
 	AuthProtocol string
 	AuthKey      string
@@ -80,8 +98,13 @@ type CLIConfig struct {
 	DiscoveryScan bool
 
 	// Vendor debugging options (NEW - add these fields to your existing CLIConfig)
-	VendorDebug   bool   // Enable vendor detection debugging
-	VendorLogFile string // Path to vendor detection log file
+	VendorDebug        bool   // Enable vendor detection debugging
+	VendorLogFile      string // Path to vendor detection log file
+	TCPCheckTimeout    time.Duration
+	TCPCheckPorts      []int
+	SkipTCPCheck       bool
+	EnableSNMPFallback bool
+	Communities        []string
 }
 
 // NewVendorDetectionLogger creates a new vendor detection logger
@@ -213,14 +236,25 @@ type VendorConfig struct {
 	ExclusionPatterns   []string            `yaml:"exclusion_patterns"`
 	DeviceTypeOverrides map[string][]string `yaml:"device_type_overrides"`
 	FingerprintOIDs     []FingerprintOID    `yaml:"fingerprint_oids"`
-}
 
+	ModelExtraction    []ExtractionRule `yaml:"model_extraction"`
+	SerialExtraction   []ExtractionRule `yaml:"serial_extraction"`
+	FirmwareExtraction []ExtractionRule `yaml:"firmware_extraction"`
+}
+type ExtractionRule struct {
+	Regex        string   `yaml:"regex"`
+	Priority     int      `yaml:"priority"`
+	CaptureGroup int      `yaml:"capture_group"`
+	DeviceTypes  []string `yaml:"device_types"`
+	Description  string   `yaml:"description"`
+}
 type FingerprintOID struct {
-	Name           string   `yaml:"name"`
-	OID            string   `yaml:"oid"`
-	Priority       int      `yaml:"priority"`
-	Description    string   `yaml:"description"`
-	DeviceTypes    []string `yaml:"device_types"`
+	Name        string   `yaml:"name"`
+	OID         string   `yaml:"oid"`
+	Priority    int      `yaml:"priority"`
+	Description string   `yaml:"description"`
+	DeviceTypes []string `yaml:"device_types"`
+
 	Definitive     bool     `yaml:"definitive,omitempty"`
 	ExpectedValues []string `yaml:"expected_values,omitempty"`
 }
@@ -266,6 +300,13 @@ type CLIScanResult struct {
 	FingerprintPerformed bool   `json:"fingerprint_performed"`
 	FingerprintError     string `json:"fingerprint_error,omitempty"`
 	vendorLogger         *VendorDetectionLogger
+	TCPResponsive        bool     `json:"tcp_responsive"`
+	TCPCheckPorts        []int    `json:"tcp_check_ports,omitempty"`
+	SNMPVersionAttempted []string `json:"snmp_version_attempted,omitempty"`
+	SNMPVersionUsed      string   `json:"snmp_version_used,omitempty"`
+	OIDsCollected        int      `json:"oids_collected"`
+	OIDsSuccessful       []string `json:"oids_successful,omitempty"`
+	OIDsFailed           []string `json:"oids_failed,omitempty"`
 }
 
 // CLI Scanner
@@ -289,8 +330,11 @@ type CLIScanner struct {
 	persistenceBridge *persistence.PersistenceBridge
 
 	// Vendor configuration
-	vendorConfig *VendorFingerprintConfig
-	vendorLogger *VendorDetectionLogger
+	vendorConfig   *VendorFingerprintConfig
+	vendorLogger   *VendorDetectionLogger
+	tcpChecker     *TCPPortChecker
+	oidCollector   *YAMLOIDCollector
+	fieldExtractor *SmartFieldExtractor
 }
 
 func (s *CLIScanner) extractSysObjectID(result CLIScanResult) string {
@@ -343,37 +387,47 @@ func main() {
 
 // ADD these lines at the beginning of your existing NewCLIScanner function:
 
+func NewTCPPortChecker(timeout time.Duration, ports []int) *TCPPortChecker {
+	if len(ports) == 0 {
+		// Default ports including printer and common service ports
+		ports = []int{20, 21, 22, 25, 53, 80, 161, 443, 515, 631, 993, 995, 9100}
+	}
+	return &TCPPortChecker{
+		timeout: timeout,
+		ports:   ports,
+	}
+}
 func NewCLIScanner(config CLIConfig) *CLIScanner {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// ADD THESE LINES:
 	// Create vendor detection logger
 	vendorLogEnabled := config.Verbose || os.Getenv("VENDOR_DEBUG") == "1"
 	vendorLogPath := os.Getenv("VENDOR_LOG_FILE")
 
 	scanner := &CLIScanner{
-		config:  config,
-		results: make([]CLIScanResult, 0),
-		ctx:     ctx,
-		cancel:  cancel,
-		// ADD THIS LINE:
+		config:       config,
+		results:      make([]CLIScanResult, 0),
+		ctx:          ctx,
+		cancel:       cancel,
 		vendorLogger: NewVendorDetectionLogger(vendorLogEnabled, config.Verbose, vendorLogPath),
+		// NEW: Initialize enhanced components
+		tcpChecker:     NewTCPPortChecker(config.TCPCheckTimeout, config.TCPCheckPorts),
+		fieldExtractor: NewSmartFieldExtractor(nil), // Will be set after config load
 	}
 
 	// Load vendor configuration
 	if err := scanner.loadVendorConfig(); err != nil {
 		log.Printf("Warning: Failed to load vendor config: %v", err)
-		// ADD THIS LINE:
 		scanner.vendorLogger.LogError("system", fmt.Sprintf("Failed to load vendor config: %v", err))
 	} else {
-		// ADD THESE LINES:
-		// Log YAML config status
 		if scanner.vendorConfig != nil {
 			scanner.vendorLogger.LogYAMLConfigStatus(
 				true,
 				len(scanner.vendorConfig.Vendors),
 				scanner.vendorConfig.DetectionRules.PriorityOrder,
 			)
+			// Initialize field extractor with config
+			scanner.fieldExtractor = NewSmartFieldExtractor(scanner.vendorConfig)
 		} else {
 			scanner.vendorLogger.LogYAMLConfigStatus(false, 0, nil)
 		}
@@ -432,7 +486,7 @@ func (s *CLIScanner) loadVendorConfig() error {
 	return nil
 }
 
-// REPLACE your parseFlags function with this updated version
+// Complete parseFlags function with all Python-style enhancements
 func parseFlags() CLIConfig {
 	var config CLIConfig
 
@@ -457,7 +511,7 @@ func parseFlags() CLIConfig {
 
 	// Scanning options
 	flag.IntVar(&config.Concurrency, "concurrency", 50, "Max concurrent operations")
-	flag.BoolVar(&config.Fast, "fast", false, "Fast mode (1s timeout, 100 concurrency)")
+	flag.BoolVar(&config.Fast, "fast", false, "Fast mode (optimized timeouts, TCP ports, concurrency)")
 	flag.BoolVar(&config.Verbose, "verbose", false, "Verbose output")
 	flag.BoolVar(&config.Quiet, "quiet", false, "Quiet mode")
 
@@ -480,9 +534,18 @@ func parseFlags() CLIConfig {
 	portTimeout := flag.Duration("port-timeout", 1*time.Second, "Port timeout")
 	flag.BoolVar(&config.DiscoveryScan, "discovery", false, "Network discovery")
 
-	// Vendor debugging flags (NEW)
+	// Vendor debugging flags
 	flag.BoolVar(&config.VendorDebug, "vendor-debug", false, "Enable vendor detection debugging")
 	flag.StringVar(&config.VendorLogFile, "vendor-log", "", "Log vendor detection to file")
+
+	// NEW: TCP pre-filtering options (Python-style optimization)
+	tcpTimeout := flag.Duration("tcp-timeout", 2*time.Second, "TCP connectivity check timeout")
+	flag.BoolVar(&config.SkipTCPCheck, "skip-tcp-check", false, "Skip TCP pre-filtering")
+	tcpPortsStr := flag.String("tcp-ports", "20,21,22,25,53,80,161,443,515,631,993,995,9100",
+		"TCP ports to check for connectivity (comma-separated)")
+
+	// NEW: Enhanced SNMP options (Python-style fallback)
+	flag.BoolVar(&config.EnableSNMPFallback, "enable-snmp-fallback", true, "Enable automatic SNMP version fallback")
 
 	// Special flags
 	version := flag.Bool("version", false, "Show version")
@@ -509,14 +572,29 @@ func parseFlags() CLIConfig {
 	config.Timeout = *timeout
 	config.PingTimeout = *pingTimeout
 	config.PortTimeout = *portTimeout
+	config.TCPCheckTimeout = *tcpTimeout
 
-	// FAST MODE OPTIMIZATIONS
+	// Parse TCP ports
+	if *tcpPortsStr != "" {
+		portStrs := strings.Split(*tcpPortsStr, ",")
+		config.TCPCheckPorts = make([]int, 0, len(portStrs))
+		for _, portStr := range portStrs {
+			if port, err := strconv.Atoi(strings.TrimSpace(portStr)); err == nil {
+				config.TCPCheckPorts = append(config.TCPCheckPorts, port)
+			}
+		}
+	}
+
+	// FAST MODE OPTIMIZATIONS (Python-style performance)
 	if config.Fast {
 		config.Timeout = 1 * time.Second
 		config.PingTimeout = 300 * time.Millisecond
 		config.PortTimeout = 500 * time.Millisecond
+		config.TCPCheckTimeout = 1 * time.Second
 		config.Retries = 1
 		config.Concurrency = 100
+		// Use fewer TCP ports in fast mode for better performance
+		config.TCPCheckPorts = []int{22, 80, 161, 443}
 	}
 
 	// Handle vendor debugging (can use either flags or environment variables)
@@ -1354,111 +1432,6 @@ func (s *CLIScanner) testConnectivity(ip string) (bool, time.Duration, error) {
 	return false, time.Since(start), fmt.Errorf("no services responding")
 }
 
-// REPLACE your existing testSNMP function with this fixed version:
-
-func (s *CLIScanner) testSNMP(ip string) (bool, string, string, string, string, *snmp.Client) {
-	port := uint16(161)
-
-	// If SNMPv3 is explicitly requested, try only SNMPv3
-	if s.config.Version == 3 {
-		if s.config.Username == "" {
-			// SNMPv3 requested but no username provided
-			return false, "", "", "", "", nil
-		}
-
-		client := snmp.NewSNMPv3Client(
-			ip, port,
-			s.config.Username,
-			s.config.AuthKey,
-			s.config.PrivKey,
-		)
-
-		client.AuthProtocol = snmp.AuthProtocolFromString(s.config.AuthProtocol)
-		client.PrivProtocol = snmp.PrivProtocolFromString(s.config.PrivProtocol)
-		client.Timeout = s.config.Timeout
-		client.Retries = s.config.Retries
-
-		if err := client.Connect(); err == nil {
-			if sysDescr, err := client.TestConnection(); err == nil {
-				sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
-				return true, s.config.Username, "SNMPv3", sysDescr, sysName, client
-			}
-		}
-		client.Close()
-		return false, "", "", "", "", nil
-	}
-
-	// If SNMPv1 or SNMPv2c is explicitly requested, or no version specified (default behavior)
-	if s.config.Version == 1 || s.config.Version == 2 || s.config.Version == 0 {
-		// Try SNMPv2c communities
-		for _, community := range s.config.Communities {
-			client := snmp.NewClient(ip, port)
-			client.Community = community
-
-			// Set the correct SNMP version
-			if s.config.Version == 1 {
-				client.Version = 0 // SNMPv1
-			} else {
-				client.Version = 1 // SNMPv2c (default)
-			}
-
-			client.Timeout = s.config.Timeout
-			client.Retries = s.config.Retries
-
-			if err := client.Connect(); err != nil {
-				client.Close()
-				continue
-			}
-
-			sysDescr, err := client.TestConnection()
-			if err != nil {
-				client.Close()
-				continue
-			}
-
-			sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
-			versionStr := "SNMPv2c"
-			if s.config.Version == 1 {
-				versionStr = "SNMPv1"
-			}
-			return true, community, versionStr, sysDescr, sysName, client
-		}
-
-		// If explicit version was requested and failed, don't try other versions
-		if s.config.Version == 1 || s.config.Version == 2 {
-			return false, "", "", "", "", nil
-		}
-	}
-
-	// Default behavior (version 0 or unspecified): Try SNMPv2c first, then SNMPv3 if configured
-	if s.config.Version == 0 {
-		// Try SNMPv3 as fallback if username is provided
-		if s.config.Username != "" {
-			client := snmp.NewSNMPv3Client(
-				ip, port,
-				s.config.Username,
-				s.config.AuthKey,
-				s.config.PrivKey,
-			)
-
-			client.AuthProtocol = snmp.AuthProtocolFromString(s.config.AuthProtocol)
-			client.PrivProtocol = snmp.PrivProtocolFromString(s.config.PrivProtocol)
-			client.Timeout = s.config.Timeout
-			client.Retries = s.config.Retries
-
-			if err := client.Connect(); err == nil {
-				if sysDescr, err := client.TestConnection(); err == nil {
-					sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
-					return true, s.config.Username, "SNMPv3", sysDescr, sysName, client
-				}
-			}
-			client.Close()
-		}
-	}
-
-	return false, "", "", "", "", nil
-}
-
 func (s *CLIScanner) lookupHostname(ip string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -2172,4 +2145,506 @@ func (s *CLIScanner) outputTable() {
 	fmt.Println()
 	fmt.Printf("Summary: %d total, %d responding, %d SNMP ready, %d fingerprinted\n",
 		len(s.results), responding, snmpReady, fingerprinted)
+}
+
+// checkSinglePort checks if a single port is open
+func (tc *TCPPortChecker) checkSinglePort(ctx context.Context, ipAddress string, port int) bool {
+	// Calculate remaining timeout
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(tc.timeout)
+	}
+
+	timeout := time.Until(deadline)
+	if timeout <= 0 {
+		return false
+	}
+
+	// Attempt TCP connection
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ipAddress, port), timeout)
+	if err != nil {
+		return false
+	}
+
+	// Close connection immediately
+	conn.Close()
+	return true
+}
+
+// SmartFieldExtractor handles intelligent field extraction from SNMP data
+type SmartFieldExtractor struct {
+	vendorConfig *VendorFingerprintConfig
+}
+
+// ExtractAllFields performs smart extraction of model, serial, and firmware from ALL OID data
+func (extractor *SmartFieldExtractor) ExtractAllFields(vendor string, snmpData map[string]string) (model, serial, firmware string) {
+	if extractor.vendorConfig == nil {
+		return extractor.extractFieldsGeneric(snmpData)
+	}
+
+	// Try vendor-specific extraction first
+	model, serial, firmware = extractor.extractFieldsVendorSpecific(vendor, snmpData)
+
+	// Fill in any missing fields with generic extraction
+	if model == "" || serial == "" || firmware == "" {
+		genModel, genSerial, genFirmware := extractor.extractFieldsGeneric(snmpData)
+		if model == "" {
+			model = genModel
+		}
+		if serial == "" {
+			serial = genSerial
+		}
+		if firmware == "" {
+			firmware = genFirmware
+		}
+	}
+
+	return model, serial, firmware
+}
+
+// extractFieldsVendorSpecific extracts fields using vendor-specific rules from YAML
+func (extractor *SmartFieldExtractor) extractFieldsVendorSpecific(vendor string, snmpData map[string]string) (model, serial, firmware string) {
+	vendorConfig, exists := extractor.vendorConfig.Vendors[vendor]
+	if !exists {
+		return "", "", ""
+	}
+
+	// Create mapping of OID -> name for smart analysis
+	oidNameMap := make(map[string]string)
+	for _, fingerprintOID := range vendorConfig.FingerprintOIDs {
+		if fingerprintOID.OID != "" && fingerprintOID.Name != "" {
+			oidNameMap[fingerprintOID.OID] = strings.ToLower(fingerprintOID.Name)
+		}
+	}
+
+	// Analyze collected SNMP data using OID names from YAML
+	for oid, value := range snmpData {
+		if value == "" || value == "<nil>" {
+			continue
+		}
+
+		// Get the descriptive name for this OID from YAML
+		oidName := oidNameMap[oid]
+
+		// Smart detection based on OID name keywords
+		if model == "" && extractor.isModelField(oidName) {
+			model = strings.TrimSpace(value)
+		}
+		if serial == "" && extractor.isSerialField(oidName) {
+			serial = strings.TrimSpace(value)
+		}
+		if firmware == "" && extractor.isFirmwareField(oidName) {
+			firmware = strings.TrimSpace(value)
+		}
+	}
+
+	return model, serial, firmware
+}
+
+// extractFieldsGeneric performs generic field extraction using standard patterns
+func (extractor *SmartFieldExtractor) extractFieldsGeneric(snmpData map[string]string) (model, serial, firmware string) {
+	// Standard OID patterns for common fields
+	standardPatterns := map[string]string{
+		// Common model OIDs
+		"1.3.6.1.2.1.47.1.1.1.1.13.1": "model", // entPhysicalModelName
+		"1.3.6.1.2.1.47.1.1.1.1.7.1":  "model", // entPhysicalName
+		// Common serial OIDs
+		"1.3.6.1.2.1.47.1.1.1.1.11.1": "serial", // entPhysicalSerialNum
+		// Common firmware OIDs
+		"1.3.6.1.2.1.47.1.1.1.1.10.1": "firmware", // entPhysicalSoftwareRev
+		"1.3.6.1.2.1.47.1.1.1.1.9.1":  "firmware", // entPhysicalFirmwareRev
+	}
+
+	// Check standard OID patterns first
+	for oid, fieldType := range standardPatterns {
+		if value, exists := snmpData[oid]; exists && value != "" && value != "<nil>" {
+			cleanValue := strings.TrimSpace(value)
+			switch fieldType {
+			case "model":
+				if model == "" {
+					model = cleanValue
+				}
+			case "serial":
+				if serial == "" {
+					serial = cleanValue
+				}
+			case "firmware":
+				if firmware == "" {
+					firmware = cleanValue
+				}
+			}
+		}
+	}
+
+	// Generic keyword-based extraction from field names
+	for fieldName, value := range snmpData {
+		if value == "" || value == "<nil>" {
+			continue
+		}
+
+		fieldLower := strings.ToLower(fieldName)
+		cleanValue := strings.TrimSpace(value)
+
+		if model == "" && extractor.isModelField(fieldLower) {
+			model = cleanValue
+		}
+		if serial == "" && extractor.isSerialField(fieldLower) {
+			serial = cleanValue
+		}
+		if firmware == "" && extractor.isFirmwareField(fieldLower) {
+			firmware = cleanValue
+		}
+	}
+
+	return model, serial, firmware
+}
+
+// Helper functions to identify field types based on keywords
+func (extractor *SmartFieldExtractor) isModelField(fieldName string) bool {
+	modelKeywords := []string{"model", "product", "type", "chassis", "platform"}
+	for _, keyword := range modelKeywords {
+		if strings.Contains(fieldName, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func (extractor *SmartFieldExtractor) isSerialField(fieldName string) bool {
+	serialKeywords := []string{"serial", "serialnumber", "serial_number", "service_tag", "servicetag"}
+	for _, keyword := range serialKeywords {
+		if strings.Contains(fieldName, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func (extractor *SmartFieldExtractor) isFirmwareField(fieldName string) bool {
+	firmwareKeywords := []string{"firmware", "version", "software", "os", "revision", "build"}
+	for _, keyword := range firmwareKeywords {
+		if strings.Contains(fieldName, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// Add this method to your CLIScanner in main.go
+
+// testSNMP tests SNMP connectivity with fallback support
+func (s *CLIScanner) testSNMP(ip string) (bool, string, string, string, string, *snmp.Client) {
+	// Use the enhanced fallback method from snmp_fallback.go
+	result := s.testSNMPWithFallback(ip)
+
+	if result.Success {
+		return true, result.Community, result.Version, result.SysDescr, result.SysName, result.Client
+	}
+
+	return false, "", "", "", "", nil
+}
+
+// Alternative implementation if you want to keep it self-contained in main.go:
+func (s *CLIScanner) testSNMPStandalone(ip string) (bool, string, string, string, string, *snmp.Client) {
+	port := uint16(161)
+
+	// If SNMPv3 is explicitly requested, try only SNMPv3
+	if s.config.Version == 3 {
+		if s.config.Username == "" {
+			return false, "", "", "", "", nil
+		}
+
+		client := snmp.NewSNMPv3Client(
+			ip, port,
+			s.config.Username,
+			s.config.AuthKey,
+			s.config.PrivKey,
+		)
+
+		client.AuthProtocol = snmp.AuthProtocolFromString(s.config.AuthProtocol)
+		client.PrivProtocol = snmp.PrivProtocolFromString(s.config.PrivProtocol)
+		client.Timeout = s.config.Timeout
+		client.Retries = s.config.Retries
+
+		if err := client.Connect(); err == nil {
+			if sysDescr, err := client.TestConnection(); err == nil {
+				sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
+				return true, s.config.Username, "SNMPv3", sysDescr, sysName, client
+			}
+		}
+		client.Close()
+		return false, "", "", "", "", nil
+	}
+
+	// Try SNMPv2c/v1 communities
+	for _, community := range s.config.Communities {
+		client := snmp.NewClient(ip, port)
+		client.Community = community
+
+		// Set the correct SNMP version
+		if s.config.Version == 1 {
+			client.Version = 0 // SNMPv1
+		} else {
+			client.Version = 1 // SNMPv2c (default)
+		}
+
+		client.Timeout = s.config.Timeout
+		client.Retries = s.config.Retries
+
+		if err := client.Connect(); err != nil {
+			client.Close()
+			continue
+		}
+
+		sysDescr, err := client.TestConnection()
+		if err != nil {
+			client.Close()
+			continue
+		}
+
+		sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
+		versionStr := "SNMPv2c"
+		if s.config.Version == 1 {
+			versionStr = "SNMPv1"
+		}
+		return true, community, versionStr, sysDescr, sysName, client
+	}
+
+	// Try SNMPv3 as fallback if username is provided and no explicit version
+	if s.config.Version == 0 && s.config.Username != "" {
+		client := snmp.NewSNMPv3Client(
+			ip, port,
+			s.config.Username,
+			s.config.AuthKey,
+			s.config.PrivKey,
+		)
+
+		client.AuthProtocol = snmp.AuthProtocolFromString(s.config.AuthProtocol)
+		client.PrivProtocol = snmp.PrivProtocolFromString(s.config.PrivProtocol)
+		client.Timeout = s.config.Timeout
+		client.Retries = s.config.Retries
+
+		if err := client.Connect(); err == nil {
+			if sysDescr, err := client.TestConnection(); err == nil {
+				sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
+				return true, s.config.Username, "SNMPv3", sysDescr, sysName, client
+			}
+		}
+		client.Close()
+	}
+
+	return false, "", "", "", "", nil
+}
+
+func (s *CLIScanner) testSNMPWithFallback(ip string) SNMPVersionResult {
+	port := uint16(161)
+
+	// Strategy: Try v3 first if configured, then fallback to v2c communities
+	versionsToTry := []string{}
+
+	// Determine versions to try based on configuration
+	if s.config.Version == 3 && s.config.Username != "" {
+		versionsToTry = append(versionsToTry, "v3")
+	}
+
+	// Always try v2c if:
+	// 1. Explicitly requested, OR
+	// 2. v3 not properly configured, OR
+	// 3. Fallback is enabled (default behavior)
+	if s.config.Version == 2 || s.config.Version == 1 || s.config.Version == 0 || s.config.Username == "" {
+		versionsToTry = append(versionsToTry, "v2c")
+	}
+
+	// Try each version until we get a successful response
+	for _, version := range versionsToTry {
+		if s.config.Verbose {
+			fmt.Printf("🔍 Trying SNMP %s on %s...\n", version, ip)
+		}
+
+		switch version {
+		case "v3":
+			result := s.trySNMPv3(ip, port)
+			if result.Success {
+				if s.config.Verbose {
+					fmt.Printf("✅ SNMPv3 successful on %s\n", ip)
+				}
+				return result
+			}
+			if s.config.Verbose {
+				fmt.Printf("❌ SNMPv3 failed on %s: %s\n", ip, result.ErrorMessage)
+			}
+
+		case "v2c":
+			result := s.trySNMPv2cWithCommunities(ip, port)
+			if result.Success {
+				if s.config.Verbose {
+					fmt.Printf("✅ SNMPv2c successful on %s with community '%s'\n", ip, result.Community)
+				}
+				return result
+			}
+			if s.config.Verbose {
+				fmt.Printf("❌ SNMPv2c failed on %s: %s\n", ip, result.ErrorMessage)
+			}
+		}
+	}
+
+	// All versions failed
+	return SNMPVersionResult{
+		Success:      false,
+		ErrorMessage: "All SNMP versions failed",
+	}
+}
+
+// trySNMPv3 attempts SNMPv3 authentication
+func (s *CLIScanner) trySNMPv3(ip string, port uint16) SNMPVersionResult {
+	client := snmp.NewSNMPv3Client(
+		ip, port,
+		s.config.Username,
+		s.config.AuthKey,
+		s.config.PrivKey,
+	)
+
+	client.AuthProtocol = snmp.AuthProtocolFromString(s.config.AuthProtocol)
+	client.PrivProtocol = snmp.PrivProtocolFromString(s.config.PrivProtocol)
+	client.Timeout = s.config.Timeout
+	client.Retries = s.config.Retries
+
+	if err := client.Connect(); err != nil {
+		return SNMPVersionResult{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("v3 connect failed: %v", err),
+		}
+	}
+
+	sysDescr, err := client.TestConnection()
+	if err != nil {
+		client.Close()
+		return SNMPVersionResult{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("v3 test failed: %v", err),
+		}
+	}
+
+	sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
+
+	return SNMPVersionResult{
+		Success:  true,
+		Version:  "SNMPv3",
+		Username: s.config.Username,
+		SysDescr: sysDescr,
+		SysName:  sysName,
+		Client:   client,
+	}
+}
+
+// trySNMPv2cWithCommunities attempts SNMPv2c with multiple community strings
+func (s *CLIScanner) trySNMPv2cWithCommunities(ip string, port uint16) SNMPVersionResult {
+	// Build list of communities to try
+	communitiesToTry := make([]string, 0, len(s.config.Communities)+1)
+
+	// Add other communities if not already included
+	for _, community := range s.config.Communities {
+		communitiesToTry = append(communitiesToTry, community)
+	}
+
+	// Try each community
+	for _, community := range communitiesToTry {
+		client := snmp.NewClient(ip, port)
+		client.Community = community
+		client.Version = 1 // SNMPv2c
+		client.Timeout = s.config.Timeout
+		client.Retries = s.config.Retries
+
+		if err := client.Connect(); err != nil {
+			client.Close()
+			continue
+		}
+
+		sysDescr, err := client.TestConnection()
+		if err != nil {
+			client.Close()
+			continue
+		}
+
+		sysName, _ := client.Get("1.3.6.1.2.1.1.5.0")
+
+		return SNMPVersionResult{
+			Success:   true,
+			Version:   "SNMPv2c",
+			Community: community,
+			SysDescr:  sysDescr,
+			SysName:   sysName,
+			Client:    client,
+		}
+	}
+
+	return SNMPVersionResult{
+		Success:      false,
+		ErrorMessage: "All v2c communities failed",
+	}
+}
+
+// YAMLOIDCollector handles intelligent OID collection based on YAML configuration
+type YAMLOIDCollector struct {
+	client       *snmp.Client
+	config       *VendorFingerprintConfig
+	vendorLogger *VendorDetectionLogger
+	timeout      time.Duration
+}
+
+func (tc *TCPPortChecker) CheckHostResponsive(ctx context.Context, ipAddress string) bool {
+	// Create context with timeout
+	checkCtx, cancel := context.WithTimeout(ctx, tc.timeout)
+	defer cancel()
+
+	// Create channel to receive first successful connection
+	successChan := make(chan bool, 1)
+	var wg sync.WaitGroup
+
+	// Test all ports concurrently
+	for _, port := range tc.ports {
+		wg.Add(1)
+		go func(p int) {
+			defer wg.Done()
+
+			if tc.checkSinglePort(checkCtx, ipAddress, p) {
+				select {
+				case successChan <- true:
+				default:
+					// Channel already has a value, ignore
+				}
+			}
+		}(port)
+	}
+
+	// Wait for either success or all goroutines to finish
+	go func() {
+		wg.Wait()
+		close(successChan)
+	}()
+
+	// Wait for first success or timeout
+	select {
+	case success := <-successChan:
+		return success
+	case <-checkCtx.Done():
+		return false
+	}
+}
+
+// NewYAMLOIDCollector creates a new YAML-based OID collector
+func NewYAMLOIDCollector(client *snmp.Client, config *VendorFingerprintConfig, logger *VendorDetectionLogger) *YAMLOIDCollector {
+	return &YAMLOIDCollector{
+		client:       client,
+		config:       config,
+		vendorLogger: logger,
+		timeout:      10 * time.Second,
+	}
+}
+
+// NewSmartFieldExtractor creates a new smart field extractor
+func NewSmartFieldExtractor(config *VendorFingerprintConfig) *SmartFieldExtractor {
+	return &SmartFieldExtractor{
+		vendorConfig: config,
+	}
 }

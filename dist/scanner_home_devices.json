@@ -1,0 +1,835 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2025-07-26T19:36:03.6513948-07:00",
+  "total_devices": 13,
+  "devices": {
+    "host_de-0624-fwt-01": {
+      "id": "host_de-0624-fwt-01",
+      "primary_ip": "10.202.64.8",
+      "all_ips": [
+        "10.202.64.8"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.8": {
+          "name": "Interface-10.202.64.8",
+          "ip_address": "10.202.64.8",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "firewall",
+      "sys_descr": "Palo Alto Networks PA-220 series firewall",
+      "sys_name": "de-0624-fwt-01",
+      "first_seen": "2025-07-26T19:35:48.2189108-07:00",
+      "last_seen": "2025-07-26T19:35:48.2189108-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193548_05a2249f",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.8": {
+          "1.3.6.1.2.1.1.1.0": "Palo Alto Networks PA-220 series firewall",
+          "1.3.6.1.2.1.1.5.0": "de-0624-fwt-01"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_de-0624-prtr-01": {
+      "id": "host_de-0624-prtr-01",
+      "primary_ip": "10.202.64.15",
+      "all_ips": [
+        "10.202.64.15"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.15": {
+          "name": "Interface-10.202.64.15",
+          "ip_address": "10.202.64.15",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+      "sys_name": "de-0624-prtr-01",
+      "first_seen": "2025-07-26T19:35:35.2882114-07:00",
+      "last_seen": "2025-07-26T19:35:35.2882114-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193535_9ead0735",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.15": {
+          "1.3.6.1.2.1.1.1.0": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+          "1.3.6.1.2.1.1.5.0": "de-0624-prtr-01"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_de-0624-swl-01": {
+      "id": "host_de-0624-swl-01",
+      "primary_ip": "10.202.64.10",
+      "all_ips": [
+        "10.202.64.10"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.10": {
+          "name": "Interface-10.202.64.10",
+          "ip_address": "10.202.64.10",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "Aruba JL675A 6100 48G CL4 4SFP+ Swch PL.10.13.1050",
+      "sys_name": "de-0624-swl-01",
+      "first_seen": "2025-07-26T19:35:44.7725231-07:00",
+      "last_seen": "2025-07-26T19:35:44.7725231-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193544_1bcc6969",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.10": {
+          "1.3.6.1.2.1.1.1.0": "Aruba JL675A 6100 48G CL4 4SFP+ Swch PL.10.13.1050",
+          "1.3.6.1.2.1.1.5.0": "de-0624-swl-01"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_de-0624-wap-04": {
+      "id": "host_de-0624-wap-04",
+      "primary_ip": "10.202.64.44",
+      "all_ips": [
+        "10.202.64.44"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.44": {
+          "name": "Interface-10.202.64.44",
+          "ip_address": "10.202.64.44",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+      "sys_name": "DE-0624-wap-04",
+      "first_seen": "2025-07-26T19:35:57.9033507-07:00",
+      "last_seen": "2025-07-26T19:35:57.9033507-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193557_6296003e",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.44": {
+          "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "1.3.6.1.2.1.1.5.0": "DE-0624-wap-04"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_de-624-wap-01": {
+      "id": "host_de-624-wap-01",
+      "primary_ip": "10.202.64.7",
+      "all_ips": [
+        "10.202.64.7",
+        "10.202.64.41"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.41": {
+          "name": "Interface-10.202.64.41",
+          "ip_address": "10.202.64.41",
+          "status": "discovered",
+          "type": "data"
+        },
+        "ip_10.202.64.7": {
+          "name": "Interface-10.202.64.7",
+          "ip_address": "10.202.64.7",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+      "sys_name": "DE-624-wap-01",
+      "first_seen": "2025-07-26T19:35:43.3928554-07:00",
+      "last_seen": "2025-07-26T19:35:57.6580921-07:00",
+      "scan_count": 2,
+      "last_scan_id": "scan_20250726_193557_e8dedf7a",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.41": {
+          "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "1.3.6.1.2.1.1.5.0": "DE-624-wap-01"
+        },
+        "10.202.64.7": {
+          "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "1.3.6.1.2.1.1.5.0": "DE-624-wap-01"
+        }
+      },
+      "confidence_score": 40,
+      "detection_method": "no_detection"
+    },
+    "host_de-624-wap-02": {
+      "id": "host_de-624-wap-02",
+      "primary_ip": "10.202.64.42",
+      "all_ips": [
+        "10.202.64.42"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.42": {
+          "name": "Interface-10.202.64.42",
+          "ip_address": "10.202.64.42",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+      "sys_name": "DE-624-wap-02",
+      "first_seen": "2025-07-26T19:35:57.725868-07:00",
+      "last_seen": "2025-07-26T19:35:57.725868-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193557_d6a3801c",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.42": {
+          "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "1.3.6.1.2.1.1.5.0": "DE-624-wap-02"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_de-624-wap-03": {
+      "id": "host_de-624-wap-03",
+      "primary_ip": "10.202.64.43",
+      "all_ips": [
+        "10.202.64.43"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.43": {
+          "name": "Interface-10.202.64.43",
+          "ip_address": "10.202.64.43",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+      "sys_name": "DE-624-wap-03",
+      "first_seen": "2025-07-26T19:35:57.8424434-07:00",
+      "last_seen": "2025-07-26T19:35:57.8424434-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193557_f92f1d82",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.43": {
+          "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "1.3.6.1.2.1.1.5.0": "DE-624-wap-03"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_es-0626-pdu1": {
+      "id": "host_es-0626-pdu1",
+      "primary_ip": "10.202.66.14",
+      "all_ips": [
+        "10.202.66.14"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.66.14": {
+          "name": "Interface-10.202.66.14",
+          "ip_address": "10.202.66.14",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "pdu",
+      "sys_descr": "APC Web/SNMP Management Card (MB:v4.1.0 PF:v6.5.6 PN:apc_hw05_aos_656.bin AF1:v6.5.6 AN1:apc_hw05_rpdu2g_656.bin MN:AP7920B HR:B2 SN: 5A1941E01996 MD:10/12/2019) ",
+      "sys_name": "ES-0626-PDU1",
+      "first_seen": "2025-07-26T19:35:55.1242375-07:00",
+      "last_seen": "2025-07-26T19:35:55.1242375-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193555_069444dc",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.66.14": {
+          "1.3.6.1.2.1.1.1.0": "APC Web/SNMP Management Card (MB:v4.1.0 PF:v6.5.6 PN:apc_hw05_aos_656.bin AF1:v6.5.6 AN1:apc_hw05_rpdu2g_656.bin MN:AP7920B HR:B2 SN: 5A1941E01996 MD:10/12/2019) ",
+          "1.3.6.1.2.1.1.5.0": "ES-0626-PDU1"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_es-0626-prtr-01": {
+      "id": "host_es-0626-prtr-01",
+      "primary_ip": "10.202.66.15",
+      "all_ips": [
+        "10.202.66.15"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.66.15": {
+          "name": "Interface-10.202.66.15",
+          "ip_address": "10.202.66.15",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+      "sys_name": "es-0626-prtr-01",
+      "first_seen": "2025-07-26T19:35:55.3792997-07:00",
+      "last_seen": "2025-07-26T19:35:55.3792997-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193555_ee648b53",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.66.15": {
+          "1.3.6.1.2.1.1.1.0": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+          "1.3.6.1.2.1.1.5.0": "es-0626-prtr-01"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_es-626-wap-1": {
+      "id": "host_es-626-wap-1",
+      "primary_ip": "10.202.66.7",
+      "all_ips": [
+        "10.202.66.7"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.66.7": {
+          "name": "Interface-10.202.66.7",
+          "ip_address": "10.202.66.7",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+      "sys_name": "ES-626-wap-1",
+      "first_seen": "2025-07-26T19:36:03.2514848-07:00",
+      "last_seen": "2025-07-26T19:36:03.2514848-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193603_ee8f7d0b",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.66.7": {
+          "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "1.3.6.1.2.1.1.5.0": "ES-626-wap-1"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "host_zd421": {
+      "id": "host_zd421",
+      "primary_ip": "10.202.64.62",
+      "all_ips": [
+        "10.202.64.62"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.62": {
+          "name": "Interface-10.202.64.62",
+          "ip_address": "10.202.64.62",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "unknown",
+      "device_type": "unknown",
+      "sys_descr": "Zebra Technologies ZD421-203dpi / internal wired",
+      "sys_name": "ZD421",
+      "first_seen": "2025-07-26T19:35:35.2014217-07:00",
+      "last_seen": "2025-07-26T19:35:35.2014217-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193535_b6d16167",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.62": {
+          "1.3.6.1.2.1.1.1.0": "Zebra Technologies ZD421-203dpi / internal wired",
+          "1.3.6.1.2.1.1.5.0": "ZD421"
+        }
+      },
+      "confidence_score": 30,
+      "detection_method": "no_detection"
+    },
+    "ip_10_202_64_12": {
+      "id": "ip_10_202_64_12",
+      "primary_ip": "10.202.64.12",
+      "all_ips": [
+        "10.202.64.12"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.12": {
+          "name": "Interface-10.202.64.12",
+          "ip_address": "10.202.64.12",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "",
+      "device_type": "unknown",
+      "first_seen": "2025-07-26T19:35:45.9272364-07:00",
+      "last_seen": "2025-07-26T19:35:45.9272364-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193545_13d8434b",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.12": {}
+      },
+      "confidence_score": 30,
+      "detection_method": ""
+    },
+    "ip_10_202_64_14": {
+      "id": "ip_10_202_64_14",
+      "primary_ip": "10.202.64.14",
+      "all_ips": [
+        "10.202.64.14"
+      ],
+      "mac_addresses": [],
+      "interfaces": {
+        "ip_10.202.64.14": {
+          "name": "Interface-10.202.64.14",
+          "ip_address": "10.202.64.14",
+          "status": "discovered",
+          "type": "data"
+        }
+      },
+      "vendor": "",
+      "device_type": "unknown",
+      "first_seen": "2025-07-26T19:35:45.8799503-07:00",
+      "last_seen": "2025-07-26T19:35:45.8799503-07:00",
+      "scan_count": 1,
+      "last_scan_id": "scan_20250726_193545_eae7fe93",
+      "identity_method": "basic",
+      "identity_confidence": 0,
+      "snmp_data_by_ip": {
+        "10.202.64.14": {}
+      },
+      "confidence_score": 30,
+      "detection_method": ""
+    }
+  },
+  "sessions": [
+    {
+      "id": "scan_20250726_193535_b6d16167",
+      "timestamp": "2025-07-26T19:35:35.2014217-07:00",
+      "target_ip": "10.202.64.62",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.62",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "Zebra Technologies ZD421-203dpi / internal wired",
+          "sys_name": "ZD421",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "Zebra Technologies ZD421-203dpi / internal wired",
+            "1.3.6.1.2.1.1.5.0": "ZD421"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:35.2014217-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193535_9ead0735",
+      "timestamp": "2025-07-26T19:35:35.2882114-07:00",
+      "target_ip": "10.202.64.15",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.15",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+          "sys_name": "de-0624-prtr-01",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+            "1.3.6.1.2.1.1.5.0": "de-0624-prtr-01"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:35.2882114-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193543_8e1d423e",
+      "timestamp": "2025-07-26T19:35:43.3928554-07:00",
+      "target_ip": "10.202.64.7",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.7",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "sys_name": "DE-624-wap-01",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+            "1.3.6.1.2.1.1.5.0": "DE-624-wap-01"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:43.3928554-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193544_1bcc6969",
+      "timestamp": "2025-07-26T19:35:44.7725231-07:00",
+      "target_ip": "10.202.64.10",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.10",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "Aruba JL675A 6100 48G CL4 4SFP+ Swch PL.10.13.1050",
+          "sys_name": "de-0624-swl-01",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "Aruba JL675A 6100 48G CL4 4SFP+ Swch PL.10.13.1050",
+            "1.3.6.1.2.1.1.5.0": "de-0624-swl-01"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:44.7725231-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193545_eae7fe93",
+      "timestamp": "2025-07-26T19:35:45.8799503-07:00",
+      "target_ip": "10.202.64.14",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.14",
+          "vendor": "",
+          "device_type": "unknown",
+          "snmp_data": {},
+          "confidence_score": 30,
+          "detection_method": "",
+          "scan_timestamp": "2025-07-26T19:35:45.8799503-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193545_13d8434b",
+      "timestamp": "2025-07-26T19:35:45.9272364-07:00",
+      "target_ip": "10.202.64.12",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.12",
+          "vendor": "",
+          "device_type": "unknown",
+          "snmp_data": {},
+          "confidence_score": 30,
+          "detection_method": "",
+          "scan_timestamp": "2025-07-26T19:35:45.9272364-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193548_05a2249f",
+      "timestamp": "2025-07-26T19:35:48.2189108-07:00",
+      "target_ip": "10.202.64.8",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.8",
+          "vendor": "unknown",
+          "device_type": "firewall",
+          "sys_descr": "Palo Alto Networks PA-220 series firewall",
+          "sys_name": "de-0624-fwt-01",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "Palo Alto Networks PA-220 series firewall",
+            "1.3.6.1.2.1.1.5.0": "de-0624-fwt-01"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:48.2189108-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193555_069444dc",
+      "timestamp": "2025-07-26T19:35:55.1242375-07:00",
+      "target_ip": "10.202.66.14",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.66.14",
+          "vendor": "unknown",
+          "device_type": "pdu",
+          "sys_descr": "APC Web/SNMP Management Card (MB:v4.1.0 PF:v6.5.6 PN:apc_hw05_aos_656.bin AF1:v6.5.6 AN1:apc_hw05_rpdu2g_656.bin MN:AP7920B HR:B2 SN: 5A1941E01996 MD:10/12/2019) ",
+          "sys_name": "ES-0626-PDU1",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "APC Web/SNMP Management Card (MB:v4.1.0 PF:v6.5.6 PN:apc_hw05_aos_656.bin AF1:v6.5.6 AN1:apc_hw05_rpdu2g_656.bin MN:AP7920B HR:B2 SN: 5A1941E01996 MD:10/12/2019) ",
+            "1.3.6.1.2.1.1.5.0": "ES-0626-PDU1"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:55.1242375-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193555_ee648b53",
+      "timestamp": "2025-07-26T19:35:55.3792997-07:00",
+      "target_ip": "10.202.66.15",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.66.15",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+          "sys_name": "es-0626-prtr-01",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "Lexmark CX522ade version CXTZJ.075.027 kernel 4.17.19-yocto-standard-f1f312eac1e628495169f1fd4469a255 All-N-1",
+            "1.3.6.1.2.1.1.5.0": "es-0626-prtr-01"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:55.3792997-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193557_e8dedf7a",
+      "timestamp": "2025-07-26T19:35:57.6580921-07:00",
+      "target_ip": "10.202.64.41",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.41",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "sys_name": "DE-624-wap-01",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+            "1.3.6.1.2.1.1.5.0": "DE-624-wap-01"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:57.6580921-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193557_d6a3801c",
+      "timestamp": "2025-07-26T19:35:57.725868-07:00",
+      "target_ip": "10.202.64.42",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.42",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "sys_name": "DE-624-wap-02",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+            "1.3.6.1.2.1.1.5.0": "DE-624-wap-02"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:57.725868-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193557_f92f1d82",
+      "timestamp": "2025-07-26T19:35:57.8424434-07:00",
+      "target_ip": "10.202.64.43",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.43",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "sys_name": "DE-624-wap-03",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+            "1.3.6.1.2.1.1.5.0": "DE-624-wap-03"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:57.8424434-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193557_6296003e",
+      "timestamp": "2025-07-26T19:35:57.9033507-07:00",
+      "target_ip": "10.202.64.44",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.64.44",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "sys_name": "DE-0624-wap-04",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+            "1.3.6.1.2.1.1.5.0": "DE-0624-wap-04"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:35:57.9033507-07:00"
+        }
+      ],
+      "duration": "1s"
+    },
+    {
+      "id": "scan_20250726_193603_ee8f7d0b",
+      "timestamp": "2025-07-26T19:36:03.2514848-07:00",
+      "target_ip": "10.202.66.7",
+      "scan_type": "single_device",
+      "devices_found": 1,
+      "new_devices": 0,
+      "updated_devices": 0,
+      "results": [
+        {
+          "ip_address": "10.202.66.7",
+          "vendor": "unknown",
+          "device_type": "unknown",
+          "sys_descr": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+          "sys_name": "ES-626-wap-1",
+          "snmp_data": {
+            "1.3.6.1.2.1.1.1.0": "ArubaOS (MODEL: 515), Version 8.11.2.1-8.11.2.1 SSR",
+            "1.3.6.1.2.1.1.5.0": "ES-626-wap-1"
+          },
+          "confidence_score": 30,
+          "detection_method": "no_detection",
+          "scan_timestamp": "2025-07-26T19:36:03.2514848-07:00"
+        }
+      ],
+      "duration": "1s"
+    }
+  ],
+  "statistics": {
+    "total_devices": 13,
+    "total_sessions": 14,
+    "vendor_breakdown": {
+      "unknown": 11
+    },
+    "type_breakdown": {
+      "firewall": 1,
+      "pdu": 1,
+      "unknown": 11
+    },
+    "last_scan_date": "2025-07-26T19:36:03.2514848-07:00",
+    "oldest_device": "2025-07-26T19:35:35.2014217-07:00",
+    "avg_confidence": 30.76923076923077,
+    "devices_per_subnet": {
+      "10.202.64.0/24": 10,
+      "10.202.66.0/24": 3
+    },
+    "error_stats": {}
+  },
+  "config": {
+    "max_sessions": 100,
+    "max_devices": 10000,
+    "auto_cleanup": true,
+    "cleanup_interval": 86400000000000,
+    "backup_enabled": true,
+    "backup_count": 5,
+    "compress_backups": false
+  }
+}
